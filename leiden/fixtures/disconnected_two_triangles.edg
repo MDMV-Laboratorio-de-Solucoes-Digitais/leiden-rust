@@ -1,0 +1,14 @@
+# nodes=6
+# Two disjoint K3 cliques (no inter-clique edges). Tests the
+# disconnected-graph invariant per spec.md Edge Cases "Disconnected
+# graph": every weakly-connected component MUST receive at least one
+# community, no community may span the two components.
+#   Clique A: nodes 0, 1, 2 (3 edges)
+#   Clique B: nodes 3, 4, 5 (3 edges)
+#   Total: 6 edges.
+0	1	1.0
+0	2	1.0
+1	2	1.0
+3	4	1.0
+3	5	1.0
+4	5	1.0
