@@ -27,3 +27,6 @@ Thumbs.db
 # Cargo
 # Cargo.lock is intentionally NOT ignored for v1: the TUI / library
 # workspace ships binaries, so reproducible builds pin dependency versions.
+
+# Agents
+.commandcode/
