@@ -1,0 +1,12 @@
+{
+  "fixture": "gnp_sparse.edg",
+  "gamma": 1.0,
+  "seed": 0,
+  "node_count": 40,
+  "edge_count": 54,
+  "reference_partition_placeholder": "see gnp_sparse.partition.json",
+  "reference_modularity": 0.18,
+  "expected_termination_reason": "converged",
+  "expected_iterations": 3,
+  "notes": "Deterministic Erdős–Rényi G(n, p) graph (n=40, p=0.05, seed=0). At this density the modularity landscape is shallow and the partition may fluctuate between 2 and 4 communities depending on γ; the placeholder value is an estimate. SC-002 reference for the >=10 cardinality invariant (T007c + T116b)."
+}
