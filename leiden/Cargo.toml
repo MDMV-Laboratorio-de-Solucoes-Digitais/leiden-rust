@@ -1,0 +1,57 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/leiden",
+    "crates/leiden-cli",
+    "crates/leiden-tui",
+]
+
+# Workspace-wide lint profile — copied verbatim from `rust-code-rigor.md` at
+# the repository root. This block MUST NOT be weakened without amending
+# `.specify/memory/constitution.md` (Constitution §II Strict Lint Compliance).
+[workspace.lints.rust]
+unsafe_code = "deny"
+missing_docs = "deny"
+missing_debug_implementations = "deny"
+unreachable_pub = "deny"
+unused_results = "deny"
+unused_qualifications = "deny"
+trivial_casts = "deny"
+trivial_numeric_casts = "deny"
+unused_extern_crates = "deny"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+
+allow_attributes = "deny"
+allow_attributes_without_reason = "deny"
+
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+unreachable = "deny"
+dbg_macro = "deny"
+print_stdout = "warn"
+use_self = "deny"
+wildcard_dependencies = "deny"
+cargo = { level = "warn", priority = -1 }
+multiple_crate_versions = "deny"
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.88"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+debug = false
+strip = "symbols"
+
+[profile.dev]
+debug = true
