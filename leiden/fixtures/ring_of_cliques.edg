@@ -1,0 +1,26 @@
+# nodes=12
+# Three K4 cliques (3*6 = 18 intra edges) — nodes {0,1,2,3}, {4,5,6,7},
+# {8,9,10,11}. There are no inter-clique edges; the name reflects the
+# canonical "ring of cliques" benchmark shape from network-science
+# literature (the ring edges are omitted because γ=1.0 at this density
+# is the dividing line: any positive ring edge would merge all three
+# communities at the reference γ=1.0). SC-002 reference; exercises
+# aggregation (three distinct communities expected).
+0	1	1.0
+0	2	1.0
+0	3	1.0
+1	2	1.0
+1	3	1.0
+2	3	1.0
+4	5	1.0
+4	6	1.0
+4	7	1.0
+5	6	1.0
+5	7	1.0
+6	7	1.0
+8	9	1.0
+8	10	1.0
+8	11	1.0
+9	10	1.0
+9	11	1.0
+10	11	1.0
