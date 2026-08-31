@@ -1,0 +1,7 @@
+# nodes=1
+# A single node with no edges. Per data-model.md §1.1, this triggers the
+# "DegenerateInput but non-zero node count" path (terminates after 0
+# iterations with one community containing that node); see spec.md Edge
+# Cases "Zero-edge connected components" — the input is NOT DegenerateInput
+# because total edges == 0 BUT total nodes == 1.
+0

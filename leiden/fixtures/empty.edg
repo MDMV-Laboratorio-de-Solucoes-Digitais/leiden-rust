@@ -1,0 +1,4 @@
+# nodes=0
+# No nodes and no edges; triggers spec.md FR-003a DegenerateInput. The CLI
+# exits 0 with `termination_reason: "degenerate_input"` and an empty
+# `assignments` array.
