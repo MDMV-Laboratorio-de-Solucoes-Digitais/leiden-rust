@@ -1,0 +1,23 @@
+{
+  "fixture": "path.edg",
+  "gamma": 1.0,
+  "seed": 0,
+  "node_count": 10,
+  "edge_count": 9,
+  "reference_partition": [
+    {"node": "0", "community": 0},
+    {"node": "1", "community": 0},
+    {"node": "2", "community": 0},
+    {"node": "3", "community": 0},
+    {"node": "4", "community": 0},
+    {"node": "5", "community": 0},
+    {"node": "6", "community": 0},
+    {"node": "7", "community": 0},
+    {"node": "8", "community": 0},
+    {"node": "9", "community": 0}
+  ],
+  "reference_modularity": 0.0,
+  "expected_termination_reason": "converged",
+  "expected_iterations": 1,
+  "notes": "Linear path 0-1-...-9. Like the star, a path is a tree; the canonical Leiden result at γ=1.0 is the all-singleton-or-all-one-community degenerate partition. Under the lowest-id tie-break the all-singleton-then-aggregate path yields the single-community assignment shown. SC-002 reference; also exercises the iteration-cap path (T055)."
+}

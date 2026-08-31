@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "generated_by": "tools/gen_classification.py (Phase 1 stub; locked by T116a)",
+  "notes": "Per-fixture uniqueness classification. The v1 algorithm is fully deterministic per FR-004 and Clarifications 2026-08-30 (seed field); therefore every fixture has a unique reference partition under the documented lowest-id tie-break rule, and the SC-002 '100% match' target is the only meaningful contract. The 'unique: false' field is reserved for a future stochastic variant (Constitution §Determinism: stochastic variants are out of scope unless added via a feature flag and a Constitution amendment). The reference_partition_hash is a u64 placeholder; it is locked in by T116a (N=30 repeated-run invariant test).",
+  "fixtures": {
+    "single_node.edg": {
+      "unique": true,
+      "gamma": 1.0,
+      "seed": 0,
+      "reference_partition_hash": 0
+    },
+    "empty.edg": {
+      "unique": true,
+      "gamma": 1.0,
+      "seed": 0,
+      "reference_partition_hash": 0
+    },
+    "two_cliques.edg": {
+      "unique": true,
+      "gamma": 1.0,
+      "seed": 0,
+      "reference_partition_hash": 0
+    },
+    "karate.edg": {
+      "unique": true,
+      "gamma": 1.0,
+      "seed": 0,
+      "reference_partition_hash": 0
+    },
+    "ring_of_cliques.edg": {
+      "unique": true,
+      "gamma": 1.0,
+      "seed": 0,
+      "reference_partition_hash": 0
+    },
+    "star.edg": {
+      "unique": true,
+      "gamma": 1.0,
+      "seed": 0,
+      "reference_partition_hash": 0
+    },
+    "path.edg": {
+      "unique": true,
+      "gamma": 1.0,
+      "seed": 0,
+      "reference_partition_hash": 0
+    },
+    "lfr_small.edg": {
+      "unique": true,
+      "gamma": 1.0,
+      "seed": 0,
+      "reference_partition_hash": 0
+    },
+    "disconnected_two_triangles.edg": {
+      "unique": true,
+      "gamma": 1.0,
+      "seed": 0,
+      "reference_partition_hash": 0
+    },
+    "barabasi_albert_small.edg": {
+      "unique": true,
+      "gamma": 1.0,
+      "seed": 0,
+      "reference_partition_hash": 0
+    },
+    "gnp_sparse.edg": {
+      "unique": true,
+      "gamma": 1.0,
+      "seed": 0,
+      "reference_partition_hash": 0
+    }
+  }
+}

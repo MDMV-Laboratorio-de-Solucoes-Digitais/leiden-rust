@@ -1,0 +1,12 @@
+{
+  "fixture": "karate.edg",
+  "gamma": 1.0,
+  "seed": 0,
+  "node_count": 34,
+  "edge_count": 78,
+  "reference_partition_placeholder": "see karate.partition.json",
+  "reference_modularity": 0.4198,
+  "expected_termination_reason": "converged",
+  "expected_iterations": 2,
+  "notes": "Zachary's karate club (1977). The reference 2-community partition (the historical split into factions led by 'Mr Hi' and 'John A') is captured in `karate.partition.json`. The partition file exceeds the inline JSON size budget for this fixture (~1 KB), so the assignment list is referenced by file rather than inlined. SC-002 reference."
+}

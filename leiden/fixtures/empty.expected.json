@@ -1,0 +1,12 @@
+{
+  "fixture": "empty.edg",
+  "gamma": 1.0,
+  "seed": 0,
+  "node_count": 0,
+  "edge_count": 0,
+  "reference_partition": [],
+  "reference_modularity": 0.0,
+  "expected_termination_reason": "degenerate_input",
+  "expected_iterations": 0,
+  "notes": "Empty input: zero nodes AND zero edges triggers FR-003a DegenerateInput. Outer loop is not entered; result.iterations == 0."
+}

@@ -1,0 +1,14 @@
+{
+  "fixture": "single_node.edg",
+  "gamma": 1.0,
+  "seed": 0,
+  "node_count": 1,
+  "edge_count": 0,
+  "reference_partition": [
+    {"node": "0", "community": 0}
+  ],
+  "reference_modularity": 0.0,
+  "expected_termination_reason": "converged",
+  "expected_iterations": 0,
+  "notes": "Single-node, zero-edge input. Per spec.md Edge Cases 'Zero-edge connected components' this is NOT DegenerateInput (total nodes == 1, total edges == 0). The single node forms one community; the outer loop short-circuits without iterating."
+}

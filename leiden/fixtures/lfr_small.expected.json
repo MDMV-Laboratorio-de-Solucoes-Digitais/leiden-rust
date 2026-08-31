@@ -1,0 +1,12 @@
+{
+  "fixture": "lfr_small.edg",
+  "gamma": 1.0,
+  "seed": 0,
+  "node_count": 100,
+  "edge_count": 500,
+  "reference_partition_placeholder": "see lfr_small.partition.json",
+  "reference_modularity_placeholder": 0.7,
+  "expected_termination_reason": "converged",
+  "expected_iterations": 5,
+  "notes": "Synthetic LFR-style graph for SC-001 performance budget. The reference partition (a 4-community cut) is captured in `lfr_small.partition.json` because it exceeds the inline JSON size budget; the file is regenerated from `lfr_small.edg` by tools/gen_lfr_small.py --emit-partition. SC-002 reference; the algorithm MUST return this 4-community partition exactly (within tie-break tolerance) at γ=1.0, seed=0."
+}

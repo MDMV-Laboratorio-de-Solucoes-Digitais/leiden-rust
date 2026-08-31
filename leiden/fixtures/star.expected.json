@@ -1,0 +1,24 @@
+{
+  "fixture": "star.edg",
+  "gamma": 1.0,
+  "seed": 0,
+  "node_count": 11,
+  "edge_count": 10,
+  "reference_partition": [
+    {"node": "0", "community": 0},
+    {"node": "1", "community": 0},
+    {"node": "2", "community": 0},
+    {"node": "3", "community": 0},
+    {"node": "4", "community": 0},
+    {"node": "5", "community": 0},
+    {"node": "6", "community": 0},
+    {"node": "7", "community": 0},
+    {"node": "8", "community": 0},
+    {"node": "9", "community": 0},
+    {"node": "10", "community": 0}
+  ],
+  "reference_modularity": 0.0,
+  "expected_termination_reason": "converged",
+  "expected_iterations": 1,
+  "notes": "Star graph (hub at node 0). A tree has zero cycles; at γ=1.0 every node prefers the singleton community except the hub, but Louvain/Leiden guarantee that on a tree no internal-edge-weighted cut improves modularity above the all-singleton assignment, so the converged partition is one community (modularity = 0). SC-002 reference; documents the degenerate-γ boundary at which a tree collapses."
+}
