@@ -1,0 +1,19 @@
+{
+  "fixture": "disconnected_two_triangles.edg",
+  "gamma": 1.0,
+  "seed": 0,
+  "node_count": 6,
+  "edge_count": 6,
+  "reference_partition": [
+    {"node": "0", "community": 0},
+    {"node": "1", "community": 0},
+    {"node": "2", "community": 0},
+    {"node": "3", "community": 1},
+    {"node": "4", "community": 1},
+    {"node": "5", "community": 1}
+  ],
+  "reference_modularity": 0.5,
+  "expected_termination_reason": "converged",
+  "expected_iterations": 1,
+  "notes": "Two disjoint K3 cliques. Per spec.md Edge Cases 'Disconnected graph', every weakly-connected component MUST receive at least one community; no community may span both components. The reference partition is exactly the two cliques. SC-002 reference; closes T035e."
+}
