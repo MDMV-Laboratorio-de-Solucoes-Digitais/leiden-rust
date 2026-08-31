@@ -1,0 +1,32 @@
+# Build artifacts
+/target/
+/crates/*/target/
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# insta snapshot reviews
+*.snap.new
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Local env / secrets
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+
+# Cargo
+# Cargo.lock is intentionally NOT ignored for v1: the TUI / library
+# workspace ships binaries, so reproducible builds pin dependency versions.
+
+# Agents
+.commandcode/
