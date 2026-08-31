@@ -1,8 +1,7 @@
-//! Library crate for the Leiden algorithm.
+//! `leiden` — deterministic Leiden community detection.
 //!
-//! This file is a Phase 1 stub. Real exports and trait definitions land in
-//! Phase 2 (Foundational Types) and Phase 3 (User Story 1). See
-//! `specs/001-leiden-algorithm/tasks.md` for the dependency graph.
+//! Faithful implementation of Traag, Waltman, van Eck (2019), Sci. Rep.
+//! 9:5233. Deterministic, panic-free, fully documented.
 //!
 //! ## Citation discipline (FR-009)
 //!
@@ -16,6 +15,24 @@
 //! time, and T138a enforces it at pre-merge time.
 
 #![doc = "leiden crate root"]
+
+pub mod error;
+pub mod events;
+pub mod graph;
+pub mod orchestrator;
+pub mod params;
+pub mod partition;
+pub mod quality;
+
+pub use error::LeidenError;
+pub use events::{LeidenEvent, Phase, TerminationReason, ThreadingPolicy};
+pub use graph::{CsrGraph, Edge, NodeId};
+pub use orchestrator::{Leiden, RunResult};
+pub use params::LeidenParameters;
+pub use quality::{Modularity, MoveComponents, QualityFunction};
+
+/// Placeholder for `Partition` — real type lands in Phase 3 (US1).
+pub use partition::Partition;
 
 /// This doctest demonstrates an **uncited** public item. It is annotated
 /// `compile_fail` because the body below violates `missing_docs` and
