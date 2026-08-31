@@ -1,0 +1,25 @@
+[package]
+name = "leiden-tui"
+version = "0.1.0"
+description = "Interactive Terminal UI for inspecting Leiden partitions."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "leiden-tui"
+path = "src/main.rs"
+
+[dependencies]
+ratatui = "0.30.2"
+crossterm = "0.29.0"
+color-eyre = "0.6.3"
+thiserror = "2.0.3"
+tracing-subscriber = { version = "0.3.20", default-features = false }
+
+[dev-dependencies]
+tracing-test = { version = "0.2.5", default-features = false }
