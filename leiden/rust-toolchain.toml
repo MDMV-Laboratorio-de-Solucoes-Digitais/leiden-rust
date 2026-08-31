@@ -1,0 +1,10 @@
+[toolchain]
+# MSRV floor: 1.88.0 (imposed by ratatui 0.30.2's rust_version declaration).
+# We pin to the installed stable channel (1.98.0) which satisfies the floor
+# without requiring a manual rustup install. See:
+#   plan.md §Constraints (MSRV floor CRITICAL)
+#   .specify/memory/constitution.md (Language & edition)
+# A bump above this floor requires a PATCH amendment to the constitution.
+channel = "stable"
+profile = "minimal"
+components = ["rustfmt", "clippy"]
