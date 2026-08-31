@@ -1,0 +1,53 @@
+# `clippy.toml` for the `leiden` workspace.
+#
+# Per Constitution §VII ("Dependency & Build Rigor") and `rust-code-rigor.md`
+# §9 ("Dependency Rigor"), transitive dependencies that are genuinely
+# incompatible across major versions MAY coexist; the project documents
+# each allowed duplicate here so the `multiple_crate_versions = deny`
+# lint does not block legitimate builds.
+#
+# Entries below are crates where two or more transitive users pin
+# incompatible major versions that cannot be unified by `cargo update`.
+# Each entry MUST be accompanied by a one-line rationale justifying why
+# the duplication cannot be resolved by version selection alone.
+
+allowed-duplicate-crates = [
+    # `bitflags 1.x` is required by `crossterm 0.29.x` (still on 1.x line);
+    # `bitflags 2.x` is required by `ratatui-core 0.1.x`. The two lines
+    # cannot be unified until upstream ratatui or crossterm bumps.
+    "bitflags",
+
+    # `getrandom 0.3.x` is required by `rand 0.8`-line transitives (none
+    # of which are direct deps here, but `uuid 1.x` and older
+    # `color-eyre` paths still pull them in); `getrandom 0.4.x` is
+    # required by `rustix 1.x` for entropy. Cannot unify without an
+    # upstream upgrade.
+    "getrandom",
+
+    # `hashbrown 0.16.x` is required by `crossterm 0.29.x` and the older
+    # `hashbrown`-on-1.x path; `hashbrown 0.17.x` is required by
+    # `hashbrown 0.17.x` consumers (and standard-library `HashMap`
+    # mirroring on nightly). Cannot unify.
+    "hashbrown",
+
+    # `r-efi 5.x` is required by `rustix 0.38.x`-line transitives;
+    # `r-efi 6.x` is required by `rustix 1.x`. The two lines coexist in
+    # the wider ecosystem until the rustix 0.38-line is retired.
+    "r-efi",
+
+    # `syn 1.x` is required by `serde_derive 1.x` and the older
+    # `darling`/`darling_core 0.20`-line; `syn 2.x` is required by
+    # `clap_derive 4.x`, `thiserror 2.x`; `syn 3.x` is required by
+    # `darling 0.24` and newer proc-macro crates. The three lines cannot
+    # be unified in a single major version today.
+    "syn",
+
+    # `thiserror 1.x` is required by `ratatui 0.30.x` and several other
+    # transitive crates; `thiserror 2.x` is our direct dependency.
+    # Cannot unify until ratatui upgrades.
+    "thiserror",
+
+    # Companion to the `thiserror` entry above (`thiserror-impl` is the
+    # procedural-macro half).
+    "thiserror-impl",
+]
