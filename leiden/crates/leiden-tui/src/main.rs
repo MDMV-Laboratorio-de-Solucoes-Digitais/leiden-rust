@@ -130,7 +130,7 @@ fn main() -> Result<()> {
                     init_partition.sort_by(|a, b| a.0.cmp(&b.0));
                     app.partition = init_partition;
 
-                    let (rx, worker) = spawn_leiden_worker(graph.clone(), app.params.clone());
+                    let (rx, worker) = spawn_leiden_worker(graph.clone(), app.params.clone(), app.control.paused.clone(), app.control.step.clone(), app.control.abort.clone());
                     app.graph = Some(graph);
                     app.with_receiver(rx);
                     app.worker_handle = Some(worker);
