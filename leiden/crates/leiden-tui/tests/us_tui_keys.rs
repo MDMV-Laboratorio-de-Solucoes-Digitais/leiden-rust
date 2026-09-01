@@ -38,9 +38,9 @@ fn tui_key_bindings_state_transitions() {
     assert_eq!(app.focus, FocusPanel::CommunityList);
 
     // 4. Pause toggle
-    assert!(!app.control.paused);
+    assert!(!app.control.paused.load(std::sync::atomic::Ordering::SeqCst));
     app.handle_key(KeyEvent::from(KeyCode::Char('p')));
-    assert!(app.control.paused);
+    assert!(app.control.paused.load(std::sync::atomic::Ordering::SeqCst));
 
     // 5. Help overlay
     assert!(!app.visibility.help_open);
