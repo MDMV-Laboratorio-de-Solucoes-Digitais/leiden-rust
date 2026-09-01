@@ -2,40 +2,55 @@
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Style};
+use ratatui::style::Style;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::widgets::Paragraph;
 
 use crate::app::{App, FocusPanel};
-use crate::ui::colors::{BORDER_COLOR, FOCUS_COLOR};
+use crate::ui::colors::FG_1;
+use crate::ui::styles::{
+    log_debug_style, log_error_style, log_info_style, log_trace_style, log_warn_style, panel_block,
+};
 
-fn level_color(line: &str) -> Color {
-    if line.contains("[ERROR]") {
-        Color::Red
-    } else if line.contains("[WARN]") {
-        Color::Yellow
-    } else if line.contains("[INFO]") {
-        Color::Green
-    } else if line.contains("[DEBUG]") {
-        Color::Blue
+#[expect(
+    clippy::option_if_let_else,
+    reason = "chained prefix matching is clearer with if let sequence than nested map_or_else"
+)]
+fn format_log_line(line: &str) -> Line<'_> {
+    if let Some(rest) = line.strip_prefix("[ERROR]") {
+        Line::from(vec![
+            Span::styled("[ERROR]", log_error_style()),
+            Span::styled(rest.to_string(), Style::default().fg(FG_1)),
+        ])
+    } else if let Some(rest) = line.strip_prefix("[WARN]") {
+        Line::from(vec![
+            Span::styled("[WARN]", log_warn_style()),
+            Span::styled(rest.to_string(), Style::default().fg(FG_1)),
+        ])
+    } else if let Some(rest) = line.strip_prefix("[INFO]") {
+        Line::from(vec![
+            Span::styled("[INFO]", log_info_style()),
+            Span::styled(rest.to_string(), Style::default().fg(FG_1)),
+        ])
+    } else if let Some(rest) = line.strip_prefix("[DEBUG]") {
+        Line::from(vec![
+            Span::styled("[DEBUG]", log_debug_style()),
+            Span::styled(rest.to_string(), Style::default().fg(FG_1)),
+        ])
+    } else if let Some(rest) = line.strip_prefix("[TRACE]") {
+        Line::from(vec![
+            Span::styled("[TRACE]", log_trace_style()),
+            Span::styled(rest.to_string(), Style::default().fg(FG_1)),
+        ])
     } else {
-        Color::DarkGray
+        Line::from(Span::styled(line.to_string(), log_debug_style()))
     }
 }
 
 /// Render the log viewer pane.
 pub fn render_log_pane(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let is_focused = app.focus == FocusPanel::LogPane;
-    let border_color = if is_focused {
-        FOCUS_COLOR
-    } else {
-        BORDER_COLOR
-    };
-
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(border_color))
-        .title(" Logs ");
+    let block = panel_block("Logs", is_focused);
 
     let entries = app.log_ring.lock().map_or_else(
         |_| std::collections::VecDeque::new(),
@@ -48,10 +63,7 @@ pub fn render_log_pane(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let lines: Vec<Line<'_>> = entries
         .iter()
         .skip(skip_count)
-        .map(|entry| {
-            let color = level_color(entry);
-            Line::from(Span::styled(entry.as_str(), Style::default().fg(color)))
-        })
+        .map(|entry| format_log_line(entry.as_str()))
         .collect();
 
     let paragraph = Paragraph::new(lines).block(block);
