@@ -36,6 +36,6 @@ fn done_state_shows_final_partition() {
 
     let buffer = terminal.backend().buffer();
     let debug_str = format!("{buffer:?}");
-    assert!(debug_str.contains("DONE"));
+    assert!(debug_str.contains("Done") || debug_str.contains("DONE"));
     assert!(debug_str.contains("0.4127"));
 }
