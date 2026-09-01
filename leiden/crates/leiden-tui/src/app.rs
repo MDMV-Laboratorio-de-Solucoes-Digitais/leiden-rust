@@ -31,6 +31,8 @@ pub enum AppState {
     },
     /// An error occurred during graph loading or execution.
     Error(String),
+    /// Prompting for quit confirmation.
+    ConfirmQuit(Box<AppState>),
 }
 
 /// Identifies which panel currently holds keyboard focus.
@@ -248,6 +250,10 @@ impl App {
     /// Handle a keyboard event.
     pub fn handle_key(&mut self, key: KeyEvent) {
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
+            if matches!(self.state, AppState::Running { .. }) {
+                self.state = AppState::ConfirmQuit(Box::new(self.state.clone()));
+                return;
+            }
             self.control.should_quit = true;
             self.control.abort.store(true, Ordering::SeqCst);
             self.control.paused.store(false, Ordering::SeqCst);
@@ -260,11 +266,30 @@ impl App {
             return;
         }
 
+        if let AppState::ConfirmQuit(ref prev) = self.state {
+            match key.code {
+                KeyCode::Char('y') | KeyCode::Char('Y') => {
+                    self.control.should_quit = true;
+                    self.control.abort.store(true, Ordering::SeqCst);
+                    self.control.paused.store(false, Ordering::SeqCst);
+                }
+                KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                    self.state = *prev.clone();
+                }
+                _ => {}
+            }
+            return;
+        }
+
         match key.code {
             KeyCode::Char('q') => {
-                self.control.should_quit = true;
-                self.control.abort.store(true, Ordering::SeqCst);
-                self.control.paused.store(false, Ordering::SeqCst);
+                if matches!(self.state, AppState::Running { .. }) {
+                    self.state = AppState::ConfirmQuit(Box::new(self.state.clone()));
+                } else {
+                    self.control.should_quit = true;
+                    self.control.abort.store(true, Ordering::SeqCst);
+                    self.control.paused.store(false, Ordering::SeqCst);
+                }
             }
             KeyCode::Char('?') => {
                 self.visibility.help_open = !self.visibility.help_open;
@@ -336,7 +361,7 @@ impl App {
                 AppState::Error(_) => {
                     self.state = AppState::Idle;
                 }
-                AppState::Running { .. } => {}
+                AppState::Running { .. } | AppState::ConfirmQuit(_) => {}
             },
             _ => {}
         }
@@ -483,5 +508,36 @@ mod tests {
         app.handle_key(KeyEvent::from(KeyCode::Char('s')));
         assert!(app.control.paused.load(Ordering::SeqCst), "Pressing 's' while paused must keep app paused");
         assert!(app.control.step.load(Ordering::SeqCst), "Pressing 's' while paused must request a step");
+    }
+
+    #[test]
+    fn quit_confirmation_transitions() {
+        let mut app = App::new_idle();
+        
+        // Quitting from Idle quits immediately
+        app.handle_key(KeyEvent::from(KeyCode::Char('q')));
+        assert!(app.control.should_quit);
+
+        let mut app = App::new_idle();
+        app.handle_key(KeyEvent::from(KeyCode::Char('r'))); // Now Running
+        assert!(matches!(app.state, AppState::Running { .. }));
+        
+        // Quitting from Running shows confirm prompt
+        app.handle_key(KeyEvent::from(KeyCode::Char('q')));
+        assert!(!app.control.should_quit);
+        assert!(matches!(app.state, AppState::ConfirmQuit(..)));
+
+        // Pressing 'n' cancels quit
+        app.handle_key(KeyEvent::from(KeyCode::Char('n')));
+        assert!(!app.control.should_quit);
+        assert!(matches!(app.state, AppState::Running { .. }));
+
+        // Quitting again
+        app.handle_key(KeyEvent::from(KeyCode::Char('q')));
+        assert!(matches!(app.state, AppState::ConfirmQuit(..)));
+
+        // Pressing 'y' confirms quit
+        app.handle_key(KeyEvent::from(KeyCode::Char('y')));
+        assert!(app.control.should_quit);
     }
 }
