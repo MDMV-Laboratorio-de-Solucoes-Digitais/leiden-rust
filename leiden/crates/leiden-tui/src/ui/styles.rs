@@ -254,9 +254,9 @@ pub fn panel_block(title: &str, is_focused: bool) -> Block<'_> {
 
 #[cfg(test)]
 mod tests {
-    use ratatui::style::{Modifier, Style};
-    use crate::app::AppState;
     use super::*;
+    use crate::app::AppState;
+    use ratatui::style::{Modifier, Style};
 
     #[test]
     fn style_presets_are_const_fn() {
