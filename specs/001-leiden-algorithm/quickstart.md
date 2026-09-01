@@ -27,14 +27,14 @@ cargo --version   # stable, edition 2024
 # Build everything (lints + docs + tests)
 cargo check --workspace
 cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
+ct --workspace
 cargo doc --workspace --no-deps
 ```
 
 All four commands MUST succeed before merging. They enforce:
 - `cargo check` — workspace compiles.
 - `cargo clippy … -D warnings` — strict lint profile is clean (Constitution §II).
-- `cargo test` — unit, integration, and property tests pass (Constitution §V).
+- `ct` — unit, integration, and property tests pass (Constitution §V).
 - `cargo doc … --no-deps` — every public item has `///` docs
   (`missing_docs = deny`).
 
@@ -83,20 +83,20 @@ $ leiden --gamma 1.0 --seed 0 --format text fixtures/two_cliques.edg
 
 ```sh
 # Acceptance scenario 1: two distinct communities, both internally connected
-cargo test -p leiden two_cliques_yields_two_communities
+ct -p leiden two_cliques_yields_two_communities
 
 # Acceptance scenario 2: single-node graph returns one community, no error
-cargo test -p leiden single_node_returns_one_community
+ct -p leiden single_node_returns_one_community
 
 # Acceptance scenario 3: empty graph returns empty partition, typed "empty graph" indicator
-cargo test -p leiden empty_graph_returns_empty_partition
+ct -p leiden empty_graph_returns_empty_partition
 ```
 
 **SC-002 cross-check**: the curated fixture suite achieves ≥ 90% match on
 graphs with known unique optima.
 
 ```sh
-cargo test -p leiden fixture_suite_matches_reference
+ct -p leiden fixture_suite_matches_reference
 ```
 
 ---
@@ -119,10 +119,10 @@ $ leiden --gamma 2.0 --seed 0 --format json fixtures/karate.edg | jq '.quality, 
 
 ```sh
 # Same inputs → byte-identical output (FR-004)
-cargo test -p leiden determinism_under_fixed_seed
+ct -p leiden determinism_under_fixed_seed
 
 # Different γ → different partition on non-degenerate fixtures
-cargo test -p leiden resolution_changes_partition
+ct -p leiden resolution_changes_partition
 ```
 
 ---
@@ -152,7 +152,7 @@ assert!(result.iterations <= 10);
 **Validation**:
 
 ```sh
-cargo test -p leiden library_api_smoke
+ct -p leiden library_api_smoke
 cargo doc --workspace --no-deps
 ```
 
@@ -168,9 +168,9 @@ jq -e '.assignments | map(.node) | unique | length == 9' /tmp/out.json
 **Validation**:
 
 ```sh
-cargo test -p leiden-cli cli_round_trip
-cargo test -p leiden-cli cli_text_format_is_sorted
-cargo test -p leiden-cli cli_rejects_unknown_format
+ct -p leiden-cli cli_round_trip
+ct -p leiden-cli cli_text_format_is_sorted
+ct -p leiden-cli cli_rejects_unknown_format
 ```
 
 ### 5.3 Malformed Input (FR-008)
@@ -188,10 +188,10 @@ $ echo $?
 **Validation**:
 
 ```sh
-cargo test -p leiden-cli malformed_negative_weight
-cargo test -p leiden-cli malformed_self_loop
-cargo test -p leiden-cli malformed_dangling_node
-cargo test -p leiden-cli malformed_invalid_gamma
+ct -p leiden-cli malformed_negative_weight
+ct -p leiden-cli malformed_self_loop
+ct -p leiden-cli malformed_dangling_node
+ct -p leiden-cli malformed_invalid_gamma
 ```
 
 ---
@@ -214,7 +214,7 @@ Expected panels:
 **Validation**:
 
 ```sh
-cargo test -p leiden-tui
+ct -p leiden-tui
 cargo insta review   # after intentional UI changes
 ```
 
@@ -240,7 +240,7 @@ cargo bench -p leiden
 ## 8. Property Tests (Constitution §V)
 
 ```sh
-cargo test -p leiden proptest
+ct -p leiden proptest
 ```
 
 Asserts:
