@@ -60,10 +60,15 @@ fn tui_key_bindings_state_transitions() {
     // 7. Quit via 'q'
     assert!(!app.control.should_quit);
     app.handle_key(KeyEvent::from(KeyCode::Char('q')));
+    assert!(!app.control.should_quit); // Needs confirmation because state is Running
+    app.handle_key(KeyEvent::from(KeyCode::Char('y')));
     assert!(app.control.should_quit);
 
     // 8. Quit via Ctrl+C
     app.control.should_quit = false;
+    app.state = AppState::Running { iteration: 0 };
     app.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
+    assert!(!app.control.should_quit);
+    app.handle_key(KeyEvent::from(KeyCode::Char('y')));
     assert!(app.control.should_quit);
 }
