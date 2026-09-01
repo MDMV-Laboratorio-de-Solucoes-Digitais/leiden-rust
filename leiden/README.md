@@ -31,85 +31,117 @@ single CPU thread. Both the algorithm and the strict lint profile are
 governed by the project constitution at
 [`.specify/memory/constitution.md`](../.specify/memory/constitution.md).
 
-## Quickstart (for users)
+## Library Usage
+
+Add `leiden` to your `Cargo.toml`:
+
+```toml
+[dependencies]
+leiden = "0.1.0"
+```
+
+### Basic Example
+
+```rust
+use leiden::{CsrGraph, Edge, Leiden, LeidenParameters};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // 1. Build an undirected weighted graph
+    let edges = vec![
+        Edge { source: "node1".to_string(), target: "node2".to_string(), weight: 1.0 },
+        Edge { source: "node2".to_string(), target: "node3".to_string(), weight: 1.0 },
+        Edge { source: "node3".to_string(), target: "node1".to_string(), weight: 1.0 },
+        Edge { source: "node3".to_string(), target: "node4".to_string(), weight: 0.1 },
+        Edge { source: "node4".to_string(), target: "node5".to_string(), weight: 1.0 },
+    ];
+    let graph = CsrGraph::from_edges(edges)?;
+
+    // 2. Configure parameters
+    let params = LeidenParameters {
+        gamma: 1.0,
+        seed: Some(42),
+        iteration_cap: 10,
+    };
+
+    // 3. Run algorithm
+    let result = Leiden::new()
+        .with_parameters(params)
+        .run(&graph)?;
+
+    println!("Detected {} nodes across communities", result.partition.len());
+    println!("Modularity Quality: {:.4}", result.quality);
+    println!("Completed in {} iterations ({:?})", result.iterations, result.termination_reason);
+
+    for (node, comm) in result.partition {
+        println!("Node {node} -> Community {comm}");
+    }
+
+    Ok(())
+}
+```
+
+## CLI Usage (`leiden`)
+
+The non-interactive CLI binary accepts edge-list files (`.edg`, `.tsv`, `.csv`) or JSON adjacency input:
 
 ```sh
-# Non-interactive: detect communities on a fixture and emit JSON to stdout
-cargo run --release -p leiden-cli -- fixtures/two_cliques.edg | jq '.quality'
+# Run on edge-list fixture and output JSON format
+cargo run --release -p leiden-cli -- fixtures/two_cliques.edg --format json
 
-# Interactive: same algorithm, inspect the partition in a TUI
+# Run with custom resolution gamma and text format (default)
+cargo run --release -p leiden-cli -- fixtures/karate.edg --gamma 1.2 --format text
+
+# Read from stdin with JSON output redirected to file
+cat fixtures/lfr_small.edg | cargo run --release -p leiden-cli -- --format json > partition.json
+```
+
+### CLI Arguments
+
+- `<INPUT_FILE>`: Path to input edge-list or JSON graph file (reads from stdin if omitted).
+- `--format <text|json>`: Output format (`text`: `<node>\t<comm>`, `json`: full partition output metadata).
+- `--gamma <F>`: Resolution parameter $\gamma \ge 0$ (default: `1.0`).
+- `--seed <U>`: Randomness seed for determinism (default: `0`).
+- `--iteration-cap <N>`: Maximum Leiden outer-loop iterations (default: `10`).
+- `--quiet`: Suppress stderr structured progress logs.
+- `--log-level <LVL>`: Tracing log filter (`trace`, `debug`, `info`, `warn`, `error`).
+
+## Interactive TUI Usage (`leiden-tui`)
+
+An interactive terminal user interface built with Ratatui to visualize graph partitions, inspect community statistics, and monitor execution logs:
+
+```sh
 cargo run --release -p leiden-tui -- fixtures/karate.edg
 ```
 
-See [`specs/001-leiden-algorithm/quickstart.md`](../specs/001-leiden-algorithm/quickstart.md)
-for the full validation guide (US-1 acceptance scenarios, determinism,
-SC-001 performance budget, proptest invariants).
+### Key Bindings
 
-## Development
+| Key | Action |
+|---|---|
+| `q` / `Ctrl+C` | Quit application |
+| `r` | Restart algorithm execution |
+| `p` | Pause / resume automatic iteration |
+| `g` | Toggle graph visualization panel |
+| `l` | Toggle tracing log pane |
+| `Tab` | Cycle keyboard focus across panels |
+| `↑` / `↓` | Select and inspect community in table |
+| `?` | Toggle help modal overlay |
+
+## Development & Verification
 
 ### Minimum Supported Rust Version (MSRV)
 
-**MSRV: `1.88.0`.** This floor is imposed by the transitive dependency
-`ratatui = "0.30.2"` (declared in `crates/leiden-tui/Cargo.toml`), which
-declares `rust_version = "1.88.0"` on crates.io. The toolchain pin lives
-in [`rust-toolchain.toml`](rust-toolchain.toml); the active stable channel
-satisfies this floor without manual `rustup` intervention.
+**MSRV: `1.88.0`.** Pinned via [`rust-toolchain.toml`](rust-toolchain.toml).
 
-Per Constitution Additional Constraints ("Language & edition"), any MSRV
-bump above this floor requires a **PATCH amendment** to
-`.specify/memory/constitution.md`. Lowering the MSRV below 1.88.0 requires
-substituting the ratatui version whose `rust_version` is compatible, with
-the change documented in `tasks.md` (T006) and approved via a Constitution
-PATCH PR.
-
-### Toolchain
-
-The project uses the stable Rust toolchain pinned via `rust-toolchain.toml`,
-with `rustfmt` and `clippy` components. No nightly features are required.
-
-### Lint profile
-
-The workspace enforces a strict `[workspace.lints]` profile copied verbatim
-from [`../rust-code-rigor.md`](../rust-code-rigor.md). Concretely:
-
-- All native `rustc` lints set to `deny`: `unsafe_code`, `missing_docs`,
-  `missing_debug_implementations`, `unreachable_pub`, `unused_results`,
-  `unused_qualifications`, `trivial_casts`, `trivial_numeric_casts`,
-  `unused_extern_crates`.
-- Clippy `all` and `pedantic` at `deny`; `nursery` at `warn`.
-- Panic-free enforcement: `unwrap_used`, `expect_used`, `panic`, `todo`,
-  `unimplemented`, `unreachable`, `dbg_macro` at `deny`.
-- Hygiene: `wildcard_dependencies`, `multiple_crate_versions`, `use_self`,
-  `clone_on_ref_ptr` at `deny`.
-- `print_stdout` at `warn` (use `tracing` instead).
-
-### Verifying a change
-
-The TDD loop is enforced per logical component:
+### Full Verification Suite
 
 ```sh
-cargo check --workspace                 # must compile
+cargo check --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all -- --check
-cargo test --workspace
-```
-
-All four commands MUST succeed before merging. The Constitution's
-"Compliance One-liner" (`quickstart.md §9`) is required in every PR body.
-
-### Layout
-
-```text
-leiden/
-├── Cargo.toml                   # [workspace] + [workspace.lints]
-├── rust-toolchain.toml          # Pin toolchain (channel = "stable")
-├── clippy.toml                  # allowed-duplicate-crates (Constitution §VII)
-├── README.md                    # This file
-├── crates/
-│   ├── leiden/                  # Library crate
-│   ├── leiden-cli/              # Non-interactive CLI
-│   └── leiden-tui/              # Interactive TUI (Ratatui)
-└── fixtures/                    # Curated reference graphs (see quickstart.md §2)
+ct --workspace
+ct --workspace --release
+cargo doc --workspace --no-deps
+cargo deny --config deny.toml check
 ```
 
 ## License
