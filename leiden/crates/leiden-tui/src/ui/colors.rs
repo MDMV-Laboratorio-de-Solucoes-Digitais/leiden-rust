@@ -192,11 +192,7 @@ pub fn supports_truecolor() -> bool {
 /// otherwise returns the ANSI fallback color (FR-013, FR-014, data-model §2.1).
 #[must_use]
 pub fn resolve_color(color: Color, ansi: Color) -> Color {
-    if supports_truecolor() {
-        color
-    } else {
-        ansi
-    }
+    if supports_truecolor() { color } else { ansi }
 }
 
 #[cfg(test)]
