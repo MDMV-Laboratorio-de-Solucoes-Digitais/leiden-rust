@@ -1,4 +1,4 @@
-//! Weighted edge between two user-supplied node ids (stub for Phase 2).
+//! Weighted edge between two user-supplied node ids.
 
 use crate::graph::NodeId;
 

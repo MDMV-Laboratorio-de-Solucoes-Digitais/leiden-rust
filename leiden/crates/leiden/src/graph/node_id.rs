@@ -11,9 +11,9 @@ use std::hash::Hash;
 ///
 /// `Ord` is required so `RunResult::partition` can sort assignments by
 /// user-supplied id (FR-001; `library-api.md §7`).
-pub trait NodeId: Hash + Eq + Clone + Ord {}
+pub trait NodeId: Hash + Eq + Clone + Ord + std::fmt::Debug + 'static {}
 
-impl<T> NodeId for T where T: Hash + Eq + Clone + Ord {}
+impl<T> NodeId for T where T: Hash + Eq + Clone + Ord + std::fmt::Debug + 'static {}
 
 #[cfg(test)]
 mod tests {

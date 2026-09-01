@@ -7,22 +7,32 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[features]
+parallel = []
+
 [lints]
 workspace = true
 
 [dependencies]
+serde = { version = "1.0.219", default-features = false, features = ["derive", "std"] }
 thiserror = "2.0.3"
 tracing = "0.1.41"
 
 [dev-dependencies]
 criterion = { version = "0.8.0", default-features = false, features = ["cargo_bench_support"] }
 proptest = "1.6.0"
+serde_json = { version = "1.0.140", default-features = false, features = ["std"] }
 tracing-subscriber = { version = "0.3.20", default-features = false }
 tracing-test = { version = "0.2.5", default-features = false }
 
-# Phase 3+ will add:
-#   [[bench]]
-#   name = "local_moving"
-#   path = "benches/local_moving.rs"
-#   harness = false
-# (Criterion bench; reserved until the local-moving module ships a real loop.)
+[[bench]]
+name = "local_moving"
+harness = false
+
+[[bench]]
+name = "refinement"
+harness = false
+
+[[bench]]
+name = "aggregation"
+harness = false
