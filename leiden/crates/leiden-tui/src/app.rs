@@ -3,6 +3,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -79,12 +80,16 @@ impl Default for PanelVisibility {
 }
 
 /// Runtime execution control flags.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct ControlState {
     /// Whether the application should terminate.
     pub should_quit: bool,
     /// Whether auto-iteration is paused.
-    pub paused: bool,
+    pub paused: Arc<AtomicBool>,
+    /// Whether the application should advance by exactly one iteration.
+    pub step: Arc<AtomicBool>,
+    /// Whether the application should abort execution.
+    pub abort: Arc<AtomicBool>,
 }
 
 /// Central state model for `leiden-tui`.
@@ -162,10 +167,27 @@ impl App {
                     iteration: self.iterations + 1,
                 };
             }
-            LeidenEvent::IterationFinished { index, quality, .. } => {
+            LeidenEvent::IterationFinished { index, quality, partition, .. } => {
                 self.iterations = *index;
                 self.quality = *quality;
                 self.state = AppState::Running { iteration: *index };
+                
+                if let Some(p) = partition {
+                    if let Some(ref graph) = self.graph {
+                        let n = graph.node_count();
+                        let mut next_partition = Vec::with_capacity(n);
+                        for i in 0..n {
+                            if let Ok(u_idx) = u32::try_from(i) {
+                                if let Some(id) = graph.node_id(u_idx) {
+                                    let comm = p.community_of(u_idx);
+                                    next_partition.push((id.clone(), comm));
+                                }
+                            }
+                        }
+                        next_partition.sort_by(|a, b| a.0.cmp(&b.0));
+                        self.partition = next_partition;
+                    }
+                }
             }
             LeidenEvent::Terminated {
                 iterations,
@@ -227,6 +249,7 @@ impl App {
     pub fn handle_key(&mut self, key: KeyEvent) {
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             self.control.should_quit = true;
+            self.control.abort.store(true, Ordering::SeqCst);
             return;
         }
 
@@ -239,6 +262,7 @@ impl App {
         match key.code {
             KeyCode::Char('q') => {
                 self.control.should_quit = true;
+                self.control.abort.store(true, Ordering::SeqCst);
             }
             KeyCode::Char('?') => {
                 self.visibility.help_open = !self.visibility.help_open;
@@ -250,7 +274,12 @@ impl App {
                 self.visibility.show_log = !self.visibility.show_log;
             }
             KeyCode::Char('p') => {
-                self.control.paused = !self.control.paused;
+                let current = self.control.paused.load(Ordering::SeqCst);
+                self.control.paused.store(!current, Ordering::SeqCst);
+            }
+            KeyCode::Char('s') => {
+                self.control.paused.store(true, Ordering::SeqCst);
+                self.control.step.store(true, Ordering::SeqCst);
             }
             KeyCode::Tab => {
                 self.focus = match self.focus {
@@ -287,7 +316,8 @@ impl App {
             KeyCode::Char('r') => match self.state {
                 AppState::Done { .. } | AppState::Idle => {
                     if let Some(ref graph) = self.graph {
-                        let (rx, worker) = spawn_leiden_worker(graph.clone(), self.params.clone());
+                        self.control.abort.store(false, Ordering::SeqCst);
+                        let (rx, worker) = spawn_leiden_worker(graph.clone(), self.params.clone(), self.control.paused.clone(), self.control.step.clone(), self.control.abort.clone());
                         self.rx = Some(rx);
                         self.worker_handle = Some(worker);
                         self.state = AppState::Running { iteration: 0 };
@@ -419,5 +449,37 @@ mod tests {
             ring.entries().front().map(String::as_str),
             Some("diagnostic entry 1")
         );
+    }
+
+    #[test]
+    fn pause_and_step_key_bindings() {
+        let mut app = App::new_idle();
+        
+        // Start running
+        app.handle_key(KeyEvent::from(KeyCode::Char('r')));
+        assert_eq!(app.state, AppState::Running { iteration: 0 });
+        assert!(!app.control.paused.load(Ordering::SeqCst), "Should start unpaused");
+        assert!(!app.control.step.load(Ordering::SeqCst), "Should start with step disabled");
+
+        // 1. Pressing 's' while running continuously
+        app.handle_key(KeyEvent::from(KeyCode::Char('s')));
+        assert!(app.control.paused.load(Ordering::SeqCst), "Pressing 's' while running must switch to paused mode");
+        assert!(app.control.step.load(Ordering::SeqCst), "Pressing 's' must request a step");
+
+        // Reset step manually for testing the next transition
+        app.control.step.store(false, Ordering::SeqCst);
+
+        // 2. Unpause using 'p'
+        app.handle_key(KeyEvent::from(KeyCode::Char('p')));
+        assert!(!app.control.paused.load(Ordering::SeqCst), "Pressing 'p' while paused must unpause");
+
+        // 3. Pause using 'p'
+        app.handle_key(KeyEvent::from(KeyCode::Char('p')));
+        assert!(app.control.paused.load(Ordering::SeqCst), "Pressing 'p' while running must pause");
+
+        // 4. Pressing 's' while already paused
+        app.handle_key(KeyEvent::from(KeyCode::Char('s')));
+        assert!(app.control.paused.load(Ordering::SeqCst), "Pressing 's' while paused must keep app paused");
+        assert!(app.control.step.load(Ordering::SeqCst), "Pressing 's' while paused must request a step");
     }
 }
