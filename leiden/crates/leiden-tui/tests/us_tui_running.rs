@@ -20,6 +20,7 @@ fn running_state_shows_progress_bar() {
     app.push(LeidenEvent::IterationFinished {
         index: 3,
         quality: 0.4127,
+        partition: None,
     });
 
     let backend = TestBackend::new(120, 40);
