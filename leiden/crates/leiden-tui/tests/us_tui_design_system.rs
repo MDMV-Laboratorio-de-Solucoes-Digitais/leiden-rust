@@ -496,3 +496,184 @@ fn test_panel_toggles_all_modes() {
     assert!(debug_str.contains("Graph Topology"));
     assert!(!debug_str.contains("Logs"));
 }
+
+#[test]
+fn test_ansi_16_color_state_indicators_distinguishable() {
+    // T035, T036, SC-005: 16-color fallback distinguishable by symbol and color
+    use leiden_tui::ui::colors::{
+        ACCENT_ERROR, ACCENT_ERROR_ANSI, ACCENT_INFO, ACCENT_INFO_ANSI, ACCENT_PRIMARY_ANSI,
+        ACCENT_SUCCESS, ACCENT_SUCCESS_ANSI, FG_2, FG_2_ANSI,
+    };
+    use leiden_tui::ui::styles::{state_color, state_indicator, state_label};
+
+    // Verify all states return non-empty symbols and distinct ANSI-resolvable fallback styles
+    let idle = AppState::Idle;
+    assert_eq!(state_indicator(&idle), "○");
+    assert_eq!(state_label(&idle), "Idle");
+    assert_eq!(state_color(&idle), FG_2);
+
+    let running = AppState::Running { iteration: 1 };
+    assert_eq!(state_indicator(&running), "●");
+    assert_eq!(state_label(&running), "Running");
+    assert_eq!(state_color(&running), ACCENT_INFO);
+
+    let done = AppState::Done {
+        iterations: 5,
+        quality: 0.5,
+    };
+    assert_eq!(state_indicator(&done), "✓");
+    assert_eq!(state_label(&done), "Done");
+    assert_eq!(state_color(&done), ACCENT_SUCCESS);
+
+    let error = AppState::Error("failed".into());
+    assert_eq!(state_indicator(&error), "✗");
+    assert_eq!(state_label(&error), "Error");
+    assert_eq!(state_color(&error), ACCENT_ERROR);
+
+    // Verify indicators are distinct characters for color-vision deficiency
+    let mut unique = vec![
+        state_indicator(&idle),
+        state_indicator(&running),
+        state_indicator(&done),
+        state_indicator(&error),
+    ];
+    unique.sort_unstable();
+    unique.dedup();
+    assert_eq!(
+        unique.len(),
+        4,
+        "All 4 state indicators must be unique chars"
+    );
+
+    // Check ANSI fallback color mappings
+    assert_eq!(FG_2_ANSI, ratatui::style::Color::DarkGray);
+    assert_eq!(ACCENT_PRIMARY_ANSI, ratatui::style::Color::Blue);
+    assert_eq!(ACCENT_INFO_ANSI, ratatui::style::Color::Cyan);
+    assert_eq!(ACCENT_SUCCESS_ANSI, ratatui::style::Color::Green);
+    assert_eq!(ACCENT_ERROR_ANSI, ratatui::style::Color::Red);
+}
+
+#[test]
+fn test_no_emoji_in_rendered_output() {
+    // SC-009, T054, FR-016: All symbols drawn from documented Unicode BMP set, no emoji (U+1F000..=U+1FAFF, etc.)
+    let backend = TestBackend::new(120, 30);
+    let mut terminal = Terminal::new(backend).expect("creates test terminal");
+
+    let mut app = App::new_idle();
+    app.visibility.help_open = true;
+    app.partition = vec![("node_1".to_string(), 0), ("node_2".to_string(), 1)];
+    let graph = CsrGraph::from_edges([leiden::Edge {
+        source: "node_1".to_string(),
+        target: "node_2".to_string(),
+        weight: 1.0,
+    }])
+    .expect("valid graph");
+    app.graph = Some(graph);
+
+    let _ = terminal.draw(|f| ui::render(f, &app)).expect("draw frame");
+    let buf = terminal.backend().buffer();
+
+    for cell in buf.content() {
+        let symbol = cell.symbol();
+        for ch in symbol.chars() {
+            let code = ch as u32;
+            // Check non-BMP emoji and known pictorial emoji codepoint ranges
+            let is_emoji = (0x1F000..=0x1FAFF).contains(&code)
+                || (0x2600..=0x26FF).contains(&code) && (ch == '\u{26a0}' || ch == '\u{2728}');
+            assert!(
+                !is_emoji,
+                "Found forbidden emoji character '{ch}' (U+{code:04X}) in buffer"
+            );
+        }
+    }
+}
+
+#[test]
+fn test_partitions_up_to_100_communities_and_scrolling_beyond() {
+    // SC-010, FR-018, T055: Partitions with up to 100 communities render; >100 scroll with deterministic color cycling
+    let mut app = App::new_idle();
+
+    // Generate 120 communities
+    let mut partition = Vec::new();
+    let mut edges = Vec::new();
+    for i in 0..120 {
+        let node_a = format!("node_{i}_a");
+        let node_b = format!("node_{i}_b");
+        partition.push((node_a.clone(), i));
+        partition.push((node_b.clone(), i));
+        edges.push(leiden::Edge {
+            source: node_a,
+            target: node_b,
+            weight: 1.0,
+        });
+    }
+    let graph = CsrGraph::from_edges(edges).expect("valid graph");
+    app.graph = Some(graph);
+    app.partition = partition;
+
+    let summaries = app.community_summaries();
+    assert_eq!(summaries.len(), 120);
+
+    // Verify deterministic color cycling for all 120 communities
+    for (i, s) in summaries.iter().enumerate() {
+        let expected_color = community_color(s.id);
+        assert_eq!(expected_color, COMMUNITY_COLORS[(s.id as usize) % 12]);
+        assert_eq!(s.id, u32::try_from(i).expect("valid u32 index"));
+    }
+
+    // Render with 120 communities
+    let backend = TestBackend::new(120, 30);
+    let mut terminal = Terminal::new(backend).expect("creates test terminal");
+    let _ = terminal.draw(|f| ui::render(f, &app)).expect("draw frame");
+    let text = format!("{:?}", terminal.backend().buffer());
+    assert!(text.contains("Communities"));
+
+    // Scroll down and test
+    app.handle_key(KeyEvent::from(KeyCode::Down));
+    app.handle_key(KeyEvent::from(KeyCode::Down));
+    let _ = terminal
+        .draw(|f| ui::render(f, &app))
+        .expect("draw frame after scroll");
+}
+
+#[test]
+fn test_render_loop_frame_budget_under_50ms() {
+    // SC-007, T052: Render loop completes each frame in under 50 ms at 20 FPS poll rate
+    let mut app = App::new_idle();
+    app.state = AppState::Running { iteration: 5 };
+    app.params.iteration_cap = 100;
+    app.quality = 0.5234;
+
+    let mut partition = Vec::new();
+    let mut edges = Vec::new();
+    for i in 0..50 {
+        let node_a = format!("node_{i}_a");
+        let node_b = format!("node_{i}_b");
+        partition.push((node_a.clone(), i));
+        partition.push((node_b.clone(), i));
+        edges.push(leiden::Edge {
+            source: node_a,
+            target: node_b,
+            weight: 1.0,
+        });
+    }
+    let graph = CsrGraph::from_edges(edges).expect("valid graph");
+    app.graph = Some(graph);
+    app.partition = partition;
+
+    let backend = TestBackend::new(140, 40);
+    let mut terminal = Terminal::new(backend).expect("creates test terminal");
+
+    let start = std::time::Instant::now();
+    let frames = 20;
+    for _ in 0..frames {
+        let _ = terminal.draw(|f| ui::render(f, &app)).expect("draw frame");
+    }
+    let elapsed = start.elapsed();
+    let per_frame = elapsed / frames;
+
+    assert!(
+        per_frame < std::time::Duration::from_millis(50),
+        "Render loop frame duration {per_frame:?} exceeds 50 ms budget"
+    );
+}
