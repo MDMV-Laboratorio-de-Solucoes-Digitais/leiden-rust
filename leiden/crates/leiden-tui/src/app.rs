@@ -250,6 +250,7 @@ impl App {
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             self.control.should_quit = true;
             self.control.abort.store(true, Ordering::SeqCst);
+            self.control.paused.store(false, Ordering::SeqCst);
             return;
         }
 
@@ -263,6 +264,7 @@ impl App {
             KeyCode::Char('q') => {
                 self.control.should_quit = true;
                 self.control.abort.store(true, Ordering::SeqCst);
+                self.control.paused.store(false, Ordering::SeqCst);
             }
             KeyCode::Char('?') => {
                 self.visibility.help_open = !self.visibility.help_open;
