@@ -36,11 +36,11 @@ jobs:
 
       - name: Unit & Integration Tests (Debug)
         working-directory: leiden
-        run: ct --workspace
+        run: cargo nextest run --workspace
 
       - name: Release Tests (Performance SC-001 & Determinism)
         working-directory: leiden
-        run: ct --workspace --release
+        run: cargo nextest run --workspace --release
 
       - name: Documentation Build
         working-directory: leiden
