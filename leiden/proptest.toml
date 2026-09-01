@@ -1,0 +1,5 @@
+# Proptest configuration for Leiden workspace
+# Honors SC-003 contract of 1000 random graphs with bounded shrink cost
+
+cases = 1000
+max_shrink_iters = 200
