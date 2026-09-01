@@ -10,16 +10,23 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[lib]
+path = "src/lib.rs"
+
 [[bin]]
 name = "leiden"
 path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4.5.41", default-features = false, features = ["derive", "std", "help", "usage", "error-context"] }
+leiden = { version = "=0.1.0", path = "../leiden" }
 serde = { version = "1.0.219", default-features = false, features = ["derive", "std"] }
 serde_json = { version = "1.0.140", default-features = false, features = ["std"] }
 thiserror = "2.0.3"
-tracing-subscriber = { version = "0.3.20", default-features = false }
+tracing = { version = "0.1.41", default-features = false, features = ["std"] }
+tracing-subscriber = { version = "0.3.20", default-features = false, features = ["fmt", "env-filter", "std"] }
 
 [dev-dependencies]
+regex = "1.11.1"
+tempfile = "3.17.1"
 tracing-test = { version = "0.2.5", default-features = false }
