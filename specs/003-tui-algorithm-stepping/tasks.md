@@ -49,8 +49,8 @@ Foundational Components (Leiden Core Sync) -> US1 (Interactive Stepping TUI inte
 ## Phase 5: Polish & Cross-Cutting Concerns
 **Goal**: Finalize edge cases, such as gracefully aborting when quitting, and performance validation.
 
-- [ ] T015 Handle `q` (quit) keypress to trigger abort signal gracefully in leiden/crates/leiden-tui/src/app.rs
-- [ ] T016 Run quickstart.md validation manually to ensure <10% overhead on large graphs via leiden/crates/leiden-tui/Cargo.toml
+- [X] T015 Handle `q` (quit) keypress to trigger abort signal gracefully in leiden/crates/leiden-tui/src/app.rs
+- [X] T016 Run quickstart.md validation manually to ensure <10% overhead on large graphs via leiden/crates/leiden-tui/Cargo.toml
 
 ## Parallel Execution Examples
 
