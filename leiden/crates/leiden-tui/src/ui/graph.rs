@@ -1,5 +1,21 @@
 //! Graph topology panel widget.
 
+#![expect(
+    clippy::cast_precision_loss,
+    reason = "TUI math requires casting usize to f64, precision loss is negligible"
+)]
+#![expect(
+    clippy::explicit_counter_loop,
+    reason = "Iterating hashmap and need index"
+)]
+#![expect(
+    clippy::suboptimal_flops,
+    reason = "Readability preferred over mul_add for TUI"
+)]
+#![expect(
+    clippy::imprecise_flops,
+    reason = "hypot not strictly necessary here"
+)]
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
