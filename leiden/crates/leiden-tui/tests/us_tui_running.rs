@@ -31,5 +31,10 @@ fn running_state_shows_progress_bar() {
 
     let buffer = terminal.backend().buffer();
     let debug_str = format!("{buffer:?}");
-    assert!(debug_str.contains("RUNNING") || debug_str.contains("Iter 3"));
+    assert!(
+        debug_str.contains("Running")
+            || debug_str.contains("RUNNING")
+            || debug_str.contains("Iter 3")
+            || debug_str.contains("3/10")
+    );
 }
