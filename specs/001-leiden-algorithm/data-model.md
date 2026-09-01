@@ -232,11 +232,29 @@ pub struct Modularity {
 /// `sigma_in_to_target` / `sigma_tot_target` are computed once per candidate
 /// community in `local_moving`.
 pub struct MoveComponents {
-    pub(crate) k_i: f64,
-    pub(crate) sigma_in_to_target: f64,
-    pub(crate) sigma_tot_target: f64,
-    pub(crate) sigma_in_from_current: f64,
-    pub(crate) sigma_tot_current: f64,
+    pub k_i: f64,
+    pub sigma_in_to_target: f64,
+    pub sigma_tot_target: f64,
+    pub sigma_in_from_current: f64,
+    pub sigma_tot_current: f64,
+}
+
+impl MoveComponents {
+    pub fn new(
+        k_i: f64,
+        sigma_in_to_target: f64,
+        sigma_tot_target: f64,
+        sigma_in_from_current: f64,
+        sigma_tot_current: f64,
+    ) -> Self {
+        Self {
+            k_i,
+            sigma_in_to_target,
+            sigma_tot_target,
+            sigma_in_from_current,
+            sigma_tot_current,
+        }
+    }
 }
 ```
 
