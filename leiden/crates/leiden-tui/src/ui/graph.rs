@@ -4,29 +4,21 @@ use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::widgets::Paragraph;
 
 use crate::app::{App, FocusPanel};
-use crate::ui::colors::{BORDER_COLOR, FOCUS_COLOR, community_color};
+use crate::ui::colors::{FG_2, FG_3, community_color};
+use crate::ui::styles::{GRAPH_NODE, panel_block};
 
 /// Render the graph visualization panel.
 pub fn render_graph_panel(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let is_focused = app.focus == FocusPanel::GraphView;
-    let border_color = if is_focused {
-        FOCUS_COLOR
-    } else {
-        BORDER_COLOR
-    };
-
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(border_color))
-        .title(" Graph Topology ");
+    let block = panel_block("Graph Topology", is_focused);
 
     if app.partition.is_empty() {
         let empty_msg = Paragraph::new("No active graph loaded or partition empty.")
             .block(block)
-            .style(Style::default().fg(ratatui::style::Color::DarkGray));
+            .style(Style::default().fg(FG_3));
         frame.render_widget(empty_msg, area);
         return;
     }
@@ -38,16 +30,19 @@ pub fn render_graph_panel(frame: &mut Frame<'_>, app: &App, area: Rect) {
 
     for (node, comm) in &app.partition {
         let color = community_color(*comm);
-        let node_str = format!("[{node}:{comm}] ");
-        let node_len = node_str.len();
+        let node_text = format!(" {node}:{comm} ");
+        // Approximate width: 1 symbol (●) + node_text.len()
+        let item_len = 1 + node_text.len();
 
-        if current_len + node_len > max_width && !current_line.is_empty() {
+        if current_len + item_len > max_width && !current_line.is_empty() {
             lines.push(Line::from(std::mem::take(&mut current_line)));
             current_len = 0;
         }
 
-        current_line.push(Span::styled(node_str, Style::default().fg(color)));
-        current_len += node_len;
+        // Render community circle ● in community color
+        current_line.push(Span::styled(GRAPH_NODE, Style::default().fg(color)));
+        current_line.push(Span::styled(node_text, Style::default().fg(FG_2)));
+        current_len += item_len;
     }
 
     if !current_line.is_empty() {
