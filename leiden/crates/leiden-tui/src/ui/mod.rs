@@ -3,127 +3,176 @@
 pub mod colors;
 pub mod community;
 pub mod graph;
+pub mod help;
 pub mod log_pane;
 pub mod status_bar;
 pub mod styles;
 
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style};
-use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 
-use crate::app::App;
+use crate::app::{App, FocusPanel};
 use crate::ui::community::render_community_panel;
 use crate::ui::graph::render_graph_panel;
+use crate::ui::help::render_help_modal;
 use crate::ui::log_pane::render_log_pane;
 use crate::ui::status_bar::render_status_bar;
+use crate::ui::styles::{LayoutMode, layout_mode};
 
 /// Render the complete TUI interface for the current application state.
 pub fn render(frame: &mut Frame<'_>, app: &App) {
     let size = frame.area();
 
+    // 1. Root layout: main area + single line status bar
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(5), Constraint::Length(3)])
+        .constraints([Constraint::Min(8), Constraint::Length(1)])
         .split(size);
 
     let main_area = chunks[0];
     let status_area = chunks[1];
 
-    let mut horiz_constraints = Vec::new();
-    horiz_constraints.push(Constraint::Percentage(40)); // Community list
-    if app.visibility.show_graph && app.visibility.show_log {
-        horiz_constraints.push(Constraint::Percentage(30)); // Graph
-        horiz_constraints.push(Constraint::Percentage(30)); // Logs
-    } else if app.visibility.show_graph {
-        horiz_constraints.push(Constraint::Percentage(60)); // Graph only
-    } else if app.visibility.show_log {
-        horiz_constraints.push(Constraint::Percentage(60)); // Logs only
+    let mode = layout_mode(size.width);
+
+    match mode {
+        LayoutMode::Full | LayoutMode::Compact => {
+            render_full_compact(frame, app, main_area, mode);
+        }
+        LayoutMode::Stacked => {
+            render_stacked(frame, app, main_area);
+        }
+        LayoutMode::Minimal => {
+            render_minimal(frame, app, main_area);
+        }
     }
 
-    let panel_chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints(horiz_constraints)
-        .split(main_area);
-
-    let mut chunk_idx = 0;
-
-    // 1. Community panel
-    if let Some(&area) = panel_chunks.get(chunk_idx) {
-        render_community_panel(frame, app, area);
-        chunk_idx += 1;
-    }
-
-    // 2. Graph panel (if visible)
-    if app.visibility.show_graph
-        && let Some(&area) = panel_chunks.get(chunk_idx)
-    {
-        render_graph_panel(frame, app, area);
-        chunk_idx += 1;
-    }
-
-    // 3. Log pane (if visible)
-    if app.visibility.show_log
-        && let Some(&area) = panel_chunks.get(chunk_idx)
-    {
-        render_log_pane(frame, app, area);
-    }
-
-    // 4. Status bar
+    // Status bar at bottom
     render_status_bar(frame, app, status_area);
 
-    // 5. Help overlay if open
+    // Help overlay if open
     if app.visibility.help_open {
         render_help_modal(frame, size);
     }
 }
 
-fn render_help_modal(frame: &mut Frame<'_>, area: Rect) {
-    let modal_area = centered_rect(60, 50, area);
-    frame.render_widget(Clear, modal_area);
+fn render_full_compact(frame: &mut Frame<'_>, app: &App, area: Rect, mode: LayoutMode) {
+    let show_g = app.visibility.show_graph;
+    let show_l = app.visibility.show_log;
 
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Yellow))
-        .title(" Help / Key Bindings ");
+    let (comm_pct, graph_pct) = if mode == LayoutMode::Full {
+        (40, 60)
+    } else {
+        (50, 50)
+    };
 
-    let text = vec![
-        ratatui::text::Line::from(ratatui::text::Span::styled(
-            "Leiden Interactive Community Detection TUI",
-            Style::default().add_modifier(Modifier::BOLD),
-        )),
-        ratatui::text::Line::from(""),
-        ratatui::text::Line::from("  q / Ctrl+C : Quit application"),
-        ratatui::text::Line::from("  r          : Restart algorithm run"),
-        ratatui::text::Line::from("  s          : Step single iteration (paused mode)"),
-        ratatui::text::Line::from("  p          : Pause / resume auto-iteration"),
-        ratatui::text::Line::from("  g          : Toggle graph view panel"),
-        ratatui::text::Line::from("  l          : Toggle log pane"),
-        ratatui::text::Line::from("  Tab        : Cycle focused panel"),
-        ratatui::text::Line::from("  ↑ / ↓      : Select community in table"),
-        ratatui::text::Line::from("  ?          : Toggle this help overlay"),
-    ];
+    match (show_g, show_l) {
+        (true, true) => {
+            // Default 3-panel: Top 65% (comm + graph side-by-side), Bottom 35% (log)
+            let v_chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Percentage(65), Constraint::Percentage(35)])
+                .split(area);
 
-    let paragraph = Paragraph::new(text).block(block);
-    frame.render_widget(paragraph, modal_area);
+            let h_chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([
+                    Constraint::Percentage(comm_pct),
+                    Constraint::Percentage(graph_pct),
+                ])
+                .split(v_chunks[0]);
+
+            render_community_panel(frame, app, h_chunks[0]);
+            render_graph_panel(frame, app, h_chunks[1]);
+            render_log_pane(frame, app, v_chunks[1]);
+        }
+        (false, true) => {
+            // Community panel full width top (65%), log pane bottom (35%)
+            let v_chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Percentage(65), Constraint::Percentage(35)])
+                .split(area);
+
+            render_community_panel(frame, app, v_chunks[0]);
+            render_log_pane(frame, app, v_chunks[1]);
+        }
+        (true, false) => {
+            // Community + graph side-by-side, full height
+            let h_chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([
+                    Constraint::Percentage(comm_pct),
+                    Constraint::Percentage(graph_pct),
+                ])
+                .split(area);
+
+            render_community_panel(frame, app, h_chunks[0]);
+            render_graph_panel(frame, app, h_chunks[1]);
+        }
+        (false, false) => {
+            // Community panel full screen
+            render_community_panel(frame, app, area);
+        }
+    }
 }
 
-fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
-    let popup_layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage((100 - percent_y) / 2),
-            Constraint::Percentage(percent_y),
-            Constraint::Percentage((100 - percent_y) / 2),
-        ])
-        .split(r);
+fn render_stacked(frame: &mut Frame<'_>, app: &App, area: Rect) {
+    let show_g = app.visibility.show_graph;
+    let show_l = app.visibility.show_log;
 
-    Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage((100 - percent_x) / 2),
-            Constraint::Percentage(percent_x),
-            Constraint::Percentage((100 - percent_x) / 2),
-        ])
-        .split(popup_layout[1])[1]
+    match (show_g, show_l) {
+        (true, true) => {
+            // Community (40%) → Graph (30%) → Log (30%)
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Percentage(40),
+                    Constraint::Percentage(30),
+                    Constraint::Percentage(30),
+                ])
+                .split(area);
+
+            render_community_panel(frame, app, chunks[0]);
+            render_graph_panel(frame, app, chunks[1]);
+            render_log_pane(frame, app, chunks[2]);
+        }
+        (false, true) => {
+            // Community (60%) → Log (40%)
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
+                .split(area);
+
+            render_community_panel(frame, app, chunks[0]);
+            render_log_pane(frame, app, chunks[1]);
+        }
+        (true, false) => {
+            // Community (50%) → Graph (50%)
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+                .split(area);
+
+            render_community_panel(frame, app, chunks[0]);
+            render_graph_panel(frame, app, chunks[1]);
+        }
+        (false, false) => {
+            // Community full screen
+            render_community_panel(frame, app, area);
+        }
+    }
+}
+
+fn render_minimal(frame: &mut Frame<'_>, app: &App, area: Rect) {
+    // Only the focused panel is visible. Community panel is fallback if focused panel is hidden.
+    let effective_focus = match app.focus {
+        FocusPanel::GraphView if app.visibility.show_graph => FocusPanel::GraphView,
+        FocusPanel::LogPane if app.visibility.show_log => FocusPanel::LogPane,
+        _ => FocusPanel::CommunityList,
+    };
+
+    match effective_focus {
+        FocusPanel::CommunityList => render_community_panel(frame, app, area),
+        FocusPanel::GraphView => render_graph_panel(frame, app, area),
+        FocusPanel::LogPane => render_log_pane(frame, app, area),
+    }
 }
