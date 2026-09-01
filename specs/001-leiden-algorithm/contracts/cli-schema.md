@@ -12,14 +12,14 @@ authoritative reference for shell-pipeline integration.
 ### 1.1 Synopsis
 
 ```text
-leiden [OPTIONS] <GRAPH_FILE>
+leiden [OPTIONS] [<GRAPH_FILE>]
 ```
 
 ### 1.2 Arguments
 
 | Flag | Type | Default | Description |
 |---|---|---|---|
-| `<GRAPH_FILE>` | path (positional) | — | Path to the input graph file (edge-list or JSON). |
+| `[<GRAPH_FILE>]` | path (positional) | `-` (when piped) | Path to the input graph file (edge-list or JSON), or `-` to read from stdin. Defaults to stdin if omitted when standard input is not a TTY. |
 | `--gamma <F>` | f64 | `1.0` | Resolution parameter γ. Rejected if ≤ 0. |
 | `--seed <U>` | u64 | `0` | Randomness seed for stochastic refinement. v1 is deterministic; the seed is accepted for forward compatibility. |
 | `--iteration-cap <N>` | u32 | `10` | Maximum outer-loop iterations. Rejected if `< 1`. |
@@ -46,6 +46,9 @@ Plain-text, one edge per line:
 - `<weight>` is `f64`. Negative or non-finite weights are rejected with a
   line-referencing error.
 - Lines beginning with `#` are comments and ignored.
+- The optional `# nodes=<N>` header serves as an optional memory allocation hint;
+  it is not a strict validation assertion and does not trigger errors if omitted or
+  if the actual unique node count differs.
 - Self-loops (`source == target`) are rejected.
 - Empty lines are ignored.
 
@@ -120,7 +123,7 @@ Other format strings are rejected with exit code 2 and a stderr message:
 - A single progress line at start: `loaded graph: nodes=<n> edges=<m> total_weight=<w>`.
 - One line per iteration: `iteration <i>: quality=<q>` (the `quality=<q>` suffix is the documented format; the regex in the §1.5.1 anchor below permits it).
 - Final line: `terminated after <k> iterations: <reason>` where `<reason>` is `converged`, `iteration_cap`, or `degenerate_input`.
-- Errors: `<error-class>: <message>` for parse errors (e.g. `malformed: <path>:<line>: invalid weight ...`, `io: <path>: <cause>`); no panic trace. Self-loops are reported as `malformed: <path>:<line>: self-loop on node '<id>': not permitted`, with the line number embedded in the `LeidenError::SelfLoop { line: Some(N), node }` payload. The library's `CsrGraph::from_edges` emits the same variant with `line: None` (no source line available) — see `data-model.md §1.11` and `spec.md` FR-008.
+- Errors: `<error-class>: <message>` for parse errors (e.g. `malformed: <path>:<line>: invalid weight ...`, `io: <path>: <cause>`); no panic trace. When reading from standard input via stdin or `-`, `<path>` is `<stdin>`. Self-loops are reported as `malformed: <path>:<line>: self-loop on node '<id>': not permitted`, with the line number embedded in the `LeidenError::SelfLoop { line: Some(N), node }` payload. The library's `CsrGraph::from_edges` emits the same variant with `line: None` (no source line available) — see `data-model.md §1.11` and `spec.md` FR-008.
 
 #### 1.5.1 Canonical Examples (authoritative)
 
@@ -149,16 +152,20 @@ io: fixtures/__missing__.edg: No such file or directory (os error 2)
 
 Each line MUST match the §1.5 regex anchored at start-of-line; no panic-trace substrings (`panicked at`, `thread 'main'`) may appear on stderr in any scenario.
 
-### 1.6 Exit Codes
+### 1.6 Exit Codes & Error Remediation Guidance
 
-| Code | Meaning |
-|---|---|
-| `0` | Success |
-| `2` | Unsupported output format |
-| `3` | Invalid γ or iteration cap |
-| `4` | Malformed input (parse error) |
-| `5` | I/O error |
-| `1` | Unexpected internal error (should not occur; would indicate a bug) |
+| Code | Error Class | Trigger | Remediation Guidance |
+|---|---|---|---|
+| `0` | Success | Normal execution | Partition output written to stdout. |
+| `2` | Unsupported output format | Unknown format string in `--format` | Use `--format json` (default) or `--format text`. |
+| `3` | Parameter validation | `gamma <= 0.0`, NaN, or `iteration-cap < 1` | Ensure `--gamma > 0.0` and `--iteration-cap >= 1`. |
+| `4` | `ParseFieldCount` | Line has `< 2` or `> 3` columns | Check edge-list format: `<source><sep><target>[<sep><weight>]`. |
+| `4` | `InvalidWeight` | Negative or non-finite weight value | Ensure all edge weights are finite and `>= 0.0`. |
+| `4` | `SelfLoop` | Edge where `source == target` | Remove self-loops from the graph dataset before running Leiden. |
+| `4` | `DanglingNode` | JSON edge references node missing from `nodes` list | Ensure all endpoints in `edges` are declared in `nodes`. |
+| `4` | `EmptyGraph` | Input contains 0 nodes or 0 edges | Ensure graph file contains at least one node and edge. |
+| `5` | `Io` | File not found, permission denied, or unreadable stream | Verify file path, read permissions, or pipe source. |
+| `1` | `Internal` | Unexpected internal invariant violation | Report bug with reproduction graph. |
 
 ### 1.7 Example
 
