@@ -121,7 +121,41 @@ Two calls with identical input yield identical internal indices.
 
 ---
 
-## 4. Algorithm Parameters: `LeidenParameters`
+---
+
+## 4. Partition: `Partition`
+
+See `data-model.md §1.4` for the full struct definition and invariants.
+
+```rust
+impl Partition {
+    /// Build the singleton partition (every node in its own community).
+    pub fn singletons(node_count: usize) -> Self;
+
+    /// Number of distinct communities.
+    pub fn community_count(&self) -> u32;
+
+    /// Look up the community of an internal node.
+    pub fn community_of(&self, node: u32) -> u32;
+
+    /// Move a node to a (possibly empty) target community, updating
+    /// `sigma_in` / `sigma_tot` incrementally.
+    pub fn move_node(&mut self, node: u32, to: u32);
+
+    /// Renumber communities to a dense `0..k` range.
+    pub fn renumber(&mut self);
+
+    /// True iff this partition is a refinement of `other` (every community
+    /// of `self` is a subset of some community of `other`).
+    pub fn is_refinement_of(&self, other: &Partition) -> bool;
+}
+
+impl Debug for Partition;
+```
+
+---
+
+## 5. Algorithm Parameters: `LeidenParameters`
 
 ```rust
 /// `seed` is metadata only in v1 (the deterministic algorithm ignores it);
@@ -140,15 +174,37 @@ impl Default for LeidenParameters {
 }
 
 impl LeidenParameters {
+    /// Validates parameters. Fails fast in declaration order: checks `gamma` first
+    /// (returning `LeidenError::InvalidGamma` if `gamma <= 0.0` or non-finite),
+    /// then `iteration_cap` (returning `LeidenError::InvalidIterationCap` if `iteration_cap < 1`).
     pub fn validate(&self) -> Result<(), LeidenError>;
 }
 ```
 
 ---
 
-## 5. Quality Function Trait
+## 6. Quality Function Trait & Move Components
 
 ```rust
+#[derive(Debug, Clone, PartialEq)]
+pub struct MoveComponents {
+    pub k_i: f64,
+    pub sigma_in_to_target: f64,
+    pub sigma_tot_target: f64,
+    pub sigma_in_from_current: f64,
+    pub sigma_tot_current: f64,
+}
+
+impl MoveComponents {
+    pub fn new(
+        k_i: f64,
+        sigma_in_to_target: f64,
+        sigma_tot_target: f64,
+        sigma_in_from_current: f64,
+        sigma_tot_current: f64,
+    ) -> Self;
+}
+
 pub trait QualityFunction {
     fn total_quality<Id: NodeId>(
         &self,
@@ -156,6 +212,9 @@ pub trait QualityFunction {
         partition: &Partition,
     ) -> f64;
 
+    /// Modular-style ΔQ for moving `node` from its current community to
+    /// `target_community`. When `target_community == current_community`,
+    /// this unconditionally returns `0.0`.
     fn delta_move<Id: NodeId>(
         &self,
         graph: &CsrGraph<Id>,
@@ -172,7 +231,7 @@ impl QualityFunction for Modularity { /* … */ }
 
 ---
 
-## 6. Observability Events: `LeidenEvent`
+## 7. Observability Events: `LeidenEvent`
 
 See `data-model.md §1.8` for the full enum. The contract is:
 
@@ -192,7 +251,7 @@ impl Leiden {
 
 ---
 
-## 7. Run Result: `RunResult<Id>`
+## 8. Run Result: `RunResult<Id>`
 
 ```rust
 #[derive(Debug, Clone)]
@@ -217,7 +276,7 @@ requires (see §3).
 
 ---
 
-## 8. Error Type: `LeidenError`
+## 9. Error Type: `LeidenError`
 
 See `data-model.md §1.11`. The contract is:
 
@@ -229,7 +288,7 @@ See `data-model.md §1.11`. The contract is:
 
 ---
 
-## 9. Versioning
+## 10. Versioning
 
 This contract is the v1 surface. Any breaking change requires:
 1. A MAJOR version bump in `Cargo.toml`.
