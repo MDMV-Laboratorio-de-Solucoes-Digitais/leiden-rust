@@ -209,13 +209,13 @@ library. Pinning, dedup, and atomic history keep the project auditable.
   test commit immediately preceding it (or co-located in the same atomic commit).
 - **CI pipeline.** CI MUST run, at minimum: `cargo fmt --check`,
   `cargo clippy --workspace --all-targets -- -D warnings`,
-  `cargo test --workspace`, `cargo doc --workspace --no-deps` (which fails on
+  `ct --workspace`, `cargo doc --workspace --no-deps` (which fails on
   `missing_docs = deny`), and `cargo deny check` for advisories and licenses.
 - **Platform-conditional tests.** Tests gated by `#[cfg(unix)]` (e.g., POSIX `chmod 000` for permission-denied per `tasks.md` T083a) MUST have a documented no-op counterpart under `#[cfg(not(unix))]` so the platform asymmetry is explicit in the test suite. Suppressing a test on a platform is acceptable only when an equivalent assertion is impossible.
 - **`--release` test gate.** Performance contracts (e.g., SC-001's ≤5 s budget on
   a 100-node/500-edge fixture) MUST be exercised under
-  `cargo test --workspace --release` so that `#[cfg(not(debug_assertions))]`-gated
-  perf tests actually execute; the debug build's `cargo test --workspace` remains
+  `ct --workspace --release` so that `#[cfg(not(debug_assertions))]`-gated
+  perf tests actually execute; the debug build's `ct --workspace` remains
   the correctness gate.
 - **Review.** Every PR MUST be reviewed by at least one other maintainer. The
   reviewer MUST verify constitution compliance, not just correctness.
