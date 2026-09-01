@@ -1,9 +1,11 @@
 //! Structured observability events emitted by the Leiden algorithm.
 
+use serde::{Deserialize, Serialize};
+
 use crate::error::LeidenError;
 
 /// Algorithm phase identifier for per-phase events.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Phase {
     /// Greedy local-moving phase (Traag 2019 §3, Algorithm A.2 lines 8-25).
     LocalMoving,
@@ -14,7 +16,7 @@ pub enum Phase {
 }
 
 /// Reason the orchestrator stopped iterating.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TerminationReason {
     /// Stable iteration: no node moved and refinement did not split.
     Converged,
@@ -29,7 +31,7 @@ pub enum TerminationReason {
 /// In v1 only [`ThreadingPolicy::SingleThreaded`] is ever produced; the run
 /// is strictly sequential. `ThreadPoolSize` is reserved for a future
 /// multi-threaded variant gated behind a Constitution amendment (FR-012).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ThreadingPolicy {
     /// Single-threaded execution (v1 only).
     SingleThreaded,
@@ -143,7 +145,11 @@ impl LeidenEvent {
             Self::LocalMovingDelta { iteration, delta_q } => {
                 tracing::info!(iteration = %iteration, delta_q = %delta_q, "LocalMovingDelta");
             }
-            Self::RefinementMerged { iteration, from, to } => {
+            Self::RefinementMerged {
+                iteration,
+                from,
+                to,
+            } => {
                 tracing::info!(iteration = %iteration, from = %from, to = %to, "RefinementMerged");
             }
             Self::Aggregation {

@@ -81,7 +81,10 @@ mod tests {
 
     #[test]
     fn display_invalid_weight() {
-        let err = LeidenError::InvalidWeight { line: 7, value: -1.0 };
+        let err = LeidenError::InvalidWeight {
+            line: 7,
+            value: -1.0,
+        };
         assert_eq!(
             err.to_string(),
             "invalid weight `-1` at line 7: must be finite and \u{2265} 0"
@@ -146,7 +149,10 @@ mod tests {
                 message: String::from("m"),
                 line: None,
             },
-            LeidenError::InvalidWeight { line: 1, value: 0.5 },
+            LeidenError::InvalidWeight {
+                line: 1,
+                value: 0.5,
+            },
             LeidenError::SelfLoop {
                 line: None,
                 node: String::from("n"),

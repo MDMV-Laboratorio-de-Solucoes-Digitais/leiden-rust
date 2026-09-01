@@ -16,23 +16,24 @@
 
 #![doc = "leiden crate root"]
 
+pub(crate) mod aggregation;
 pub mod error;
 pub mod events;
 pub mod graph;
+pub(crate) mod local_moving;
 pub mod orchestrator;
 pub mod params;
 pub mod partition;
 pub mod quality;
+pub(crate) mod refinement;
 
 pub use error::LeidenError;
 pub use events::{LeidenEvent, Phase, TerminationReason, ThreadingPolicy};
 pub use graph::{CsrGraph, Edge, NodeId};
 pub use orchestrator::{Leiden, RunResult};
 pub use params::LeidenParameters;
-pub use quality::{Modularity, MoveComponents, QualityFunction};
-
-/// Placeholder for `Partition` — real type lands in Phase 3 (US1).
 pub use partition::Partition;
+pub use quality::{Modularity, MoveComponents, QualityFunction};
 
 /// This doctest demonstrates an **uncited** public item. It is annotated
 /// `compile_fail` because the body below violates `missing_docs` and
