@@ -251,6 +251,10 @@ impl Leiden {
         None
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "Core algorithmic loop requires flat structure for performance and borrow checker rules"
+    )]
     fn run_outer_loop<Id: NodeId>(
         &self,
         graph: &CsrGraph<Id>,
@@ -460,7 +464,7 @@ mod tests {
         let abort = Arc::new(AtomicBool::new(false));
 
         let control_flags = Arc::new(ControlFlags {
-            paused: paused.clone(),
+            paused,
             step: step.clone(),
             abort: abort.clone(),
         });
