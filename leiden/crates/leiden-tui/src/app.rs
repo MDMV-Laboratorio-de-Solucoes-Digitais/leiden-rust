@@ -3,11 +3,13 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use leiden::{CsrGraph, LeidenEvent, LeidenParameters, TerminationReason};
+use leiden::{CsrGraph, LeidenEvent, LeidenParameters, RunResult, TerminationReason};
 
 use crate::logging::LogRing;
+use crate::worker::spawn_leiden_worker;
 
 /// High-level lifecycle state of the TUI application.
 #[derive(Debug, Clone, PartialEq)]
@@ -118,6 +120,8 @@ pub struct App {
     pub selected_community: usize,
     /// Optional receiver for incoming Leiden events from worker thread.
     pub rx: Option<Receiver<LeidenEvent>>,
+    /// Background worker join handle.
+    pub worker_handle: Option<JoinHandle<Result<RunResult<String>, leiden::LeidenError>>>,
 }
 
 impl App {
@@ -140,6 +144,7 @@ impl App {
             focus: FocusPanel::CommunityList,
             selected_community: 0,
             rx: None,
+            worker_handle: None,
         }
     }
 
@@ -150,13 +155,14 @@ impl App {
 
     /// Process a received `LeidenEvent`.
     pub fn push(&mut self, event: LeidenEvent) {
+        event.emit();
         match &event {
             LeidenEvent::IterationStarted { .. } => {
                 self.state = AppState::Running {
                     iteration: self.iterations + 1,
                 };
             }
-            LeidenEvent::IterationFinished { index, quality } => {
+            LeidenEvent::IterationFinished { index, quality, .. } => {
                 self.iterations = *index;
                 self.quality = *quality;
                 self.state = AppState::Running { iteration: *index };
@@ -188,6 +194,31 @@ impl App {
             }
             for event in pending {
                 self.push(event);
+            }
+        }
+
+        if let Some(handle) = self.worker_handle.take() {
+            if handle.is_finished() {
+                match handle.join() {
+                    Ok(Ok(run_result)) => {
+                        self.partition = run_result.partition;
+                        self.quality = run_result.quality;
+                        self.iterations = run_result.iterations;
+                        self.termination_reason = Some(run_result.termination_reason);
+                        self.state = AppState::Done {
+                            iterations: run_result.iterations,
+                            quality: run_result.quality,
+                        };
+                    }
+                    Ok(Err(err)) => {
+                        self.state = AppState::Error(err.to_string());
+                    }
+                    Err(_) => {
+                        self.state = AppState::Error("Worker thread panicked".to_string());
+                    }
+                }
+            } else {
+                self.worker_handle = Some(handle);
             }
         }
     }
@@ -255,10 +286,20 @@ impl App {
             }
             KeyCode::Char('r') => match self.state {
                 AppState::Done { .. } | AppState::Idle => {
-                    self.state = AppState::Running { iteration: 0 };
-                    self.iterations = 0;
-                    self.quality = 0.0;
-                    self.events.clear();
+                    if let Some(ref graph) = self.graph {
+                        let (rx, worker) = spawn_leiden_worker(graph.clone(), self.params.clone());
+                        self.rx = Some(rx);
+                        self.worker_handle = Some(worker);
+                        self.state = AppState::Running { iteration: 0 };
+                        self.iterations = 0;
+                        self.quality = 0.0;
+                        self.events.clear();
+                    } else {
+                        self.state = AppState::Running { iteration: 0 };
+                        self.iterations = 0;
+                        self.quality = 0.0;
+                        self.events.clear();
+                    }
                 }
                 AppState::Error(_) => {
                     self.state = AppState::Idle;
