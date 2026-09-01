@@ -27,24 +27,24 @@ Foundational Components (Leiden Core Sync) -> US1 (Interactive Stepping TUI inte
 **Independent Test**: Running the TUI allows pausing with `p` and executing exactly one iteration with `s`.
 
 ### Tests for [US1]
-- [ ] T007 [P] [US1] Write failing tests for App key bindings (`s` and `p`) and state transitions in leiden/crates/leiden-tui/src/app.rs
+- [X] T007 [P] [US1] Write failing tests for App key bindings (`s` and `p`) and state transitions in leiden/crates/leiden-tui/src/app.rs
 
 ### Implementation for [US1]
-- [ ] T008 [US1] Update `App` and `ControlState` to include `step` and `abort` Atomics in leiden/crates/leiden-tui/src/app.rs
-- [ ] T009 [US1] Handle `s` keypress to trigger `step` atomic and switch to paused mode if running in leiden/crates/leiden-tui/src/app.rs
-- [ ] T010 [US1] Update `spawn_leiden_worker` to initialize and pass `ControlFlags` to the orchestrator in leiden/crates/leiden-tui/src/worker.rs
-- [ ] T011 [US1] Update `App::push` to extract the emitted partition state from `IterationFinished` in leiden/crates/leiden-tui/src/app.rs
+- [X] T008 [US1] Update `App` and `ControlState` to include `step` and `abort` Atomics in leiden/crates/leiden-tui/src/app.rs
+- [X] T009 [US1] Handle `s` keypress to trigger `step` atomic and switch to paused mode if running in leiden/crates/leiden-tui/src/app.rs
+- [X] T010 [US1] Update `spawn_leiden_worker` to initialize and pass `ControlFlags` to the orchestrator in leiden/crates/leiden-tui/src/worker.rs
+- [X] T011 [US1] Update `App::push` to extract the emitted partition state from `IterationFinished` in leiden/crates/leiden-tui/src/app.rs
 
 ## Phase 4: [US2] Visual Observation
 **Goal**: Upgrade the Graph Topology panel to render nodes in a spatial canvas layout clustered by their community.
 **Independent Test**: The Graph view visually updates node block positions automatically as they change communities.
 
 ### Tests for [US2]
-- [ ] T012 [P] [US2] Write unit tests for CommunityGrid spatial coordinate calculation in leiden/crates/leiden-tui/src/ui/graph.rs
+- [X] T012 [P] [US2] Write unit tests for CommunityGrid spatial coordinate calculation in leiden/crates/leiden-tui/src/ui/graph.rs
 
 ### Implementation for [US2]
-- [ ] T013 [US2] Implement `CommunityGrid` structure to track bounding boxes and spatial positions in leiden/crates/leiden-tui/src/ui/graph.rs
-- [ ] T014 [US2] Upgrade `render_graph_panel` to use `ratatui::widgets::canvas::Canvas` for community-clustered spatial nodes in leiden/crates/leiden-tui/src/ui/graph.rs
+- [X] T013 [US2] Implement `CommunityGrid` structure to track bounding boxes and spatial positions in leiden/crates/leiden-tui/src/ui/graph.rs
+- [X] T014 [US2] Upgrade `render_graph_panel` to use `ratatui::widgets::canvas::Canvas` for community-clustered spatial nodes in leiden/crates/leiden-tui/src/ui/graph.rs
 
 ## Phase 5: Polish & Cross-Cutting Concerns
 **Goal**: Finalize edge cases, such as gracefully aborting when quitting, and performance validation.
