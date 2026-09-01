@@ -54,7 +54,7 @@ no streaming/out-of-core. The user supplies node ids of any `Hash + Eq + Clone +
 type (the canonical supertrait set per `spec.md` Clarifications 2026-08-30),
 to dense `u32` indices at the input boundary.
 
-**Testing**: `cargo test --workspace` for unit + integration; `proptest` for partition
+**Testing**: `ct --workspace` for unit + integration; `proptest` for partition
 invariants; `criterion` for inner-loop benchmarks; `cargo clippy --workspace --all-targets
 -- -D warnings`; `cargo fmt --check`; `cargo doc --workspace --no-deps` (fails on
 `missing_docs`); `cargo deny check`. TUI tests use `ratatui::backend::TestBackend` for

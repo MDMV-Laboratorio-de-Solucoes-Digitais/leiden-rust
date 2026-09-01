@@ -2,14 +2,19 @@
   "version": "1.0.1",
   "integration_state_schema": 1,
   "installed_integrations": [
-    "command-code"
+    "command-code",
+    "agy"
   ],
   "integration_settings": {
     "command-code": {
       "script": "sh",
       "invoke_separator": "-"
+    },
+    "agy": {
+      "script": "sh",
+      "invoke_separator": "-"
     }
   },
-  "integration": "command-code",
-  "default_integration": "command-code"
+  "integration": "agy",
+  "default_integration": "agy"
 }
