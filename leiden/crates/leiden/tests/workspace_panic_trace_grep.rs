@@ -17,7 +17,7 @@
 //!
 //! The companion shell wrapper `tools/check_no_panic_traces.sh` runs this
 //! same check at the workspace level via the standard `rg`/`grep` tools and
-//! is wired into CI alongside `cargo test --workspace`.
+//! is wired into CI alongside `ct --workspace`.
 
 // Test code may panic to report scan failures; the production-code lint ban
 // does not apply here per Constitution §III.
