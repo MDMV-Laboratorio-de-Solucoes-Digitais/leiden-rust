@@ -31,3 +31,4 @@ Thumbs.db
 # Agents
 .commandcode/
 .agents/
+.omo/
