@@ -23,6 +23,9 @@ jobs:
           toolchain: "1.85.0"
           components: rustfmt, clippy
 
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
+
       - name: Rustfmt Check
         working-directory: leiden
         run: cargo fmt --check
