@@ -5,6 +5,7 @@ pub mod community;
 pub mod graph;
 pub mod log_pane;
 pub mod status_bar;
+pub mod styles;
 
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
