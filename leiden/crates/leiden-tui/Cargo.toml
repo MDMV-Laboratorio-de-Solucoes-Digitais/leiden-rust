@@ -10,16 +10,24 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[lib]
+path = "src/lib.rs"
+
 [[bin]]
 name = "leiden-tui"
 path = "src/main.rs"
 
 [dependencies]
-ratatui = "0.30.2"
-crossterm = "0.29.0"
+clap = { version = "4.5.41", default-features = false, features = ["derive", "std", "help", "usage"] }
 color-eyre = "0.6.3"
+crossterm = "0.29.0"
+leiden = { version = "=0.1.0", path = "../leiden" }
+leiden-cli = { version = "=0.1.0", path = "../leiden-cli" }
+ratatui = "0.30.2"
 thiserror = "2.0.3"
-tracing-subscriber = { version = "0.3.20", default-features = false }
+tracing = { version = "0.1.41", default-features = false, features = ["std"] }
+tracing-subscriber = { version = "0.3.20", default-features = false, features = ["fmt", "env-filter", "std"] }
 
 [dev-dependencies]
+insta = { version = "1.42.2" }
 tracing-test = { version = "0.2.5", default-features = false }
