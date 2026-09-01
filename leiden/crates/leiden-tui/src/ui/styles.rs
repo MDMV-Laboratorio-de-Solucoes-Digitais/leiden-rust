@@ -179,7 +179,7 @@ pub const fn state_color(state: &AppState) -> Color {
         AppState::Idle => FG_2,
         AppState::Running { .. } => ACCENT_INFO,
         AppState::Done { .. } => ACCENT_SUCCESS,
-        AppState::Error(_) => ACCENT_ERROR,
+        AppState::Error(_) | AppState::ConfirmQuit(_) => ACCENT_ERROR,
     }
 }
 
@@ -194,7 +194,7 @@ pub const fn state_indicator(state: &AppState) -> &'static str {
         AppState::Idle => INDICATOR_IDLE,
         AppState::Running { .. } => INDICATOR_RUNNING,
         AppState::Done { .. } => INDICATOR_DONE,
-        AppState::Error(_) => INDICATOR_ERROR,
+        AppState::Error(_) | AppState::ConfirmQuit(_) => INDICATOR_ERROR,
     }
 }
 
@@ -206,6 +206,7 @@ pub const fn state_label(state: &AppState) -> &'static str {
         AppState::Running { .. } => "Running",
         AppState::Done { .. } => "Done",
         AppState::Error(_) => "Error",
+        AppState::ConfirmQuit(_) => "Confirm Quit",
     }
 }
 
