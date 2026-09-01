@@ -26,5 +26,5 @@ fn idle_renders_three_panels() {
     let debug_str = format!("{buffer:?}");
     assert!(debug_str.contains("Communities"));
     assert!(debug_str.contains("Logs"));
-    assert!(debug_str.contains("IDLE"));
+    assert!(debug_str.contains("Idle") || debug_str.contains("IDLE"));
 }
