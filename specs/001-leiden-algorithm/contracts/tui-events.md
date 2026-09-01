@@ -56,7 +56,11 @@ let app = App::new(rx); // drains on each tick via try_recv()
 - **Channel type**: `std::sync::mpsc`, **bounded** at 1024 messages. If the
   buffer is full, the worker sends `LeidenEvent::Throttled { dropped: u64 }`
   and drops further events; this satisfies `unused_results = deny` and never
-  blocks the worker.
+  blocks the worker. The 1024-event buffer absorbs bursts up to ~20,000 events/sec
+  across local-moving iterations at standard tick intervals.
+- **Tick rate & event polling**: The render loop polls for terminal events via
+  `crossterm::event::poll(Duration::from_millis(50))` (20 Hz tick rate) while active,
+  draining the channel every 50ms.
 - **Channel error handling**: `Sender::send` returns `Result`; on `Err` the
   worker logs `tracing::warn!` and continues (the TUI has exited).
 - **Drain loop**: `while let Ok(event) = rx.try_recv() { app.push(event); }`
@@ -192,14 +196,17 @@ updated via `cargo insta review` on intentional UI changes.
 
 ---
 
-## 7. End-of-Run Cleanup
-
-When the orchestrator returns:
-
+## 7. End-of-Run Cleanup & Panic Safety
+ 
+When the orchestrator returns or terminates:
+ 
 1. The worker thread `JoinHandle` is dropped (the thread is in a `Send` safe
-   state because `Leiden::run` returns `Result` and never panics).
+   state because `Leiden::run` returns `Result` and never panics). If the worker thread
+   terminates unexpectedly or disconnects, the render loop transitions to `AppState::Error`.
 2. The TUI's main thread receives the `Terminated` event and transitions to
    `AppState::Done` (or `AppState::Error` on `LeidenError`).
-3. `ratatui::restore()` is called from `main`, restoring the terminal.
+3. `ratatui::restore()` is called from `main` (and also registered via a panic hook
+   `std::panic::set_hook`), ensuring terminal raw mode and screen buffers are cleanly restored
+   even on unexpected panics or signals.
 4. The `tracing` subscriber is dropped in reverse order: `fmt_layer` resumes
    writing to stderr until process exit.
