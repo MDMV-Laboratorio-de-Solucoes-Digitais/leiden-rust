@@ -70,7 +70,10 @@ fn full_channel_does_not_block_orchestrator() {
     let params = LeidenParameters::default();
 
     let start = Instant::now();
-    let (rx, handle) = spawn_leiden_worker(graph, params);
+    let paused = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let step = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let abort = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let (rx, handle) = spawn_leiden_worker(graph, params, paused, step, abort);
 
     // Hold receiver without draining
     let res = handle.join().expect("worker joins successfully");
