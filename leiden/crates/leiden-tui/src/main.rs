@@ -4,6 +4,7 @@ use std::fs::File;
 use std::io::{self, IsTerminal};
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -11,11 +12,10 @@ use clap::Parser;
 use color_eyre::Result;
 use crossterm::event::{self, Event};
 use leiden::LeidenParameters;
-use leiden_cli::parse_graph_input;
-use leiden_tui::app::{App, AppState};
+use leiden_tui::app::App;
 use leiden_tui::logging::{LogPaneLayer, LogRing};
 use leiden_tui::ui;
-use leiden_tui::worker::spawn_leiden_worker;
+use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
 use tracing::Level;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -91,6 +91,24 @@ fn main() -> Result<()> {
     color_eyre::install()?;
     let args = Args::parse();
 
+    // Signal + panic cleanup handler (Contract §4.2): restore terminal
+    // state on SIGINT / SIGTERM / SIGHUP and on panic, guaranteeing
+    // disable_raw_mode() and LeaveAlternateScreen run before exit.
+    let term_flag = Arc::new(AtomicBool::new(false));
+    for signal in [SIGINT, SIGTERM, SIGHUP] {
+        let _unused = signal_hook::flag::register(signal, Arc::clone(&term_flag))?;
+    }
+    let original_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let _ = crossterm::terminal::disable_raw_mode();
+        let _ = crossterm::execute!(
+            io::stdout(),
+            crossterm::terminal::LeaveAlternateScreen,
+            event::DisableMouseCapture
+        );
+        original_hook(info);
+    }));
+
     let log_ring = Arc::new(Mutex::new(LogRing::default()));
     init_tracing(
         &args.log_level,
@@ -106,56 +124,44 @@ fn main() -> Result<()> {
         iteration_cap: args.iteration_cap,
     };
 
+    // Load the active dataset: a custom CLI file (PresetId::Custom) or the
+    // default Karate Club demo preset (FR-006, CHK001).
     if let Some(ref path) = args.graph_file {
         let path_str = path.to_string_lossy().to_string();
         app.graph_path = Some(path_str.clone());
-
-        match std::fs::read_to_string(path) {
-            Ok(content) => match parse_graph_input(&content, &path_str) {
-                Ok(graph) => {
-                    tracing::info!(
-                        nodes = graph.node_count(),
-                        edges = graph.edge_count(),
-                        "Loaded graph file: {}",
-                        path_str
-                    );
-                    let mut init_partition = Vec::with_capacity(graph.node_count());
-                    for i in 0..graph.node_count() {
-                        if let Ok(u) = u32::try_from(i)
-                            && let Some(id) = graph.node_id(u)
-                        {
-                            init_partition.push((id.clone(), u));
-                        }
-                    }
-                    init_partition.sort_by(|a, b| a.0.cmp(&b.0));
-                    app.partition = init_partition;
-
-                    let (rx, worker) = spawn_leiden_worker(graph.clone(), app.params.clone(), app.control.paused.clone(), app.control.step.clone(), app.control.abort.clone());
-                    app.graph = Some(graph);
-                    app.with_receiver(rx);
-                    app.worker_handle = Some(worker);
-                    app.state = AppState::Running { iteration: 0 };
-                }
-                Err(err) => {
-                    tracing::error!("Failed to parse graph: {err}");
-                    app.state = AppState::Error(err.to_string());
-                }
-            },
-            Err(err) => {
-                tracing::error!("Failed to read graph file: {err}");
-                app.state = AppState::Error(format!("Failed to read graph file: {err}"));
-            }
-        }
+        tracing::info!(path = %path_str, "Loading graph file");
+        app.load_file(path);
+    } else {
+        tracing::info!("No graph file supplied; loading Karate Club demo preset");
+        app.load_preset(leiden_tui::presets::PresetId::KarateClub);
     }
 
     let mut terminal = ratatui::init();
 
     while !app.control.should_quit {
+        // Signal-driven exit: restore terminal and leave cleanly
+        if term_flag.load(Ordering::SeqCst) {
+            break;
+        }
+
         app.drain();
+
+        // Advance the force-directed physics one relaxation step per frame
+        // so node motion is smooth at the 50 ms (20 FPS) tick rate (FR-003).
+        app.simulation.tick(&app.partition, &app.dataset_edges);
 
         let _ = terminal.draw(|f| ui::render(f, &app));
 
-        if event::poll(Duration::from_millis(50))?
+        // CPU throttling (Contract §4.2): when playback is paused/idle the
+        // event poll blocks up to 200 ms instead of the 50 ms animation
+        // tick, holding CPU utilization below 0.1%.
+        let poll_ms = if app.playback.is_playing || app.control.step.load(Ordering::SeqCst) {
+            50
+        } else {
+            200
+        };
+
+        if event::poll(Duration::from_millis(poll_ms))?
             && let Event::Key(key) = event::read()?
         {
             app.handle_key(key);
