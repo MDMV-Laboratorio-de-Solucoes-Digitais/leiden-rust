@@ -7,9 +7,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use leiden::{CsrGraph, LeidenEvent, LeidenParameters, RunResult, TerminationReason};
+use leiden::{CsrGraph, Edge, LeidenEvent, LeidenParameters, RunResult, TerminationReason};
 
+use crate::explanation::ExplanationState;
 use crate::logging::LogRing;
+use crate::presets::{PresetDataset, PresetId};
+use crate::simulation::ForceSimulation;
 use crate::worker::spawn_leiden_worker;
 
 /// High-level lifecycle state of the TUI application.
@@ -32,7 +35,7 @@ pub enum AppState {
     /// An error occurred during graph loading or execution.
     Error(String),
     /// Prompting for quit confirmation.
-    ConfirmQuit(Box<AppState>),
+    ConfirmQuit(Box<Self>),
 }
 
 /// Identifies which panel currently holds keyboard focus.
@@ -69,6 +72,78 @@ pub struct PanelVisibility {
     pub show_log: bool,
     /// Whether the help modal overlay is active.
     pub help_open: bool,
+}
+
+/// Stepping granularity mode (FR-005, Data Model §2.5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum GranularityMode {
+    /// Pauses at major algorithm phases (Local Moving, Refinement,
+    /// Aggregation).
+    #[default]
+    PhaseLevel,
+    /// Pauses after individual node migrations and sub-steps.
+    MicroStep,
+}
+
+/// Controls interactive playback and stepping state (Data Model §2.5).
+#[derive(Debug, Clone)]
+pub struct PlaybackController {
+    /// Whether auto-play is actively running.
+    pub is_playing: bool,
+    /// Auto-play tick speed in milliseconds (fixed: 200ms).
+    pub tick_speed_ms: u64,
+    /// Single manual step requested flag.
+    pub step_requested: bool,
+    /// Active granularity mode (persists across preset switches).
+    pub granularity: GranularityMode,
+}
+
+impl Default for PlaybackController {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl PlaybackController {
+    /// Create a default paused controller in `PhaseLevel` mode.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            is_playing: false,
+            tick_speed_ms: 200,
+            step_requested: false,
+            granularity: GranularityMode::PhaseLevel,
+        }
+    }
+
+    /// Toggle play/pause state.
+    pub const fn toggle_play(&mut self) {
+        self.is_playing = !self.is_playing;
+        if self.is_playing {
+            self.step_requested = false;
+        }
+    }
+
+    /// Request a single step forward (auto-pauses if playing).
+    pub const fn request_step(&mut self) {
+        self.is_playing = false;
+        self.step_requested = true;
+    }
+
+    /// Toggle between `PhaseLevel` and `MicroStep` granularity.
+    pub const fn toggle_granularity(&mut self) {
+        self.granularity = match self.granularity {
+            GranularityMode::PhaseLevel => GranularityMode::MicroStep,
+            GranularityMode::MicroStep => GranularityMode::PhaseLevel,
+        };
+    }
+
+    /// Handle preset switch: resets state to Step 1, auto-pauses, and
+    /// preserves the user's selected granularity (Contract §2.2).
+    pub const fn on_preset_switch(&mut self) {
+        self.is_playing = false;
+        self.step_requested = false;
+    }
 }
 
 impl Default for PanelVisibility {
@@ -129,6 +204,18 @@ pub struct App {
     pub rx: Option<Receiver<LeidenEvent>>,
     /// Background worker join handle.
     pub worker_handle: Option<JoinHandle<Result<RunResult<String>, leiden::LeidenError>>>,
+    /// Currently active demo preset (FR-006).
+    pub preset: PresetId,
+    /// Display title of the active dataset (custom files show the file name).
+    pub dataset_title: String,
+    /// Edges of the active dataset used by the graph canvas and physics.
+    pub dataset_edges: Vec<(String, String)>,
+    /// 2D force-directed layout simulation (FR-003).
+    pub simulation: ForceSimulation,
+    /// Current 3-tier plain-English explanation state (FR-004).
+    pub explanation: ExplanationState,
+    /// Playback and stepping controller (FR-005).
+    pub playback: PlaybackController,
 }
 
 impl App {
@@ -152,6 +239,103 @@ impl App {
             selected_community: 0,
             rx: None,
             worker_handle: None,
+            preset: PresetId::KarateClub,
+            dataset_title: PresetId::KarateClub.title().to_string(),
+            dataset_edges: Vec::new(),
+            simulation: ForceSimulation::new(&[]),
+            explanation: ExplanationState::initial_unclustered(0, 0),
+            playback: PlaybackController::new(),
+        }
+    }
+
+    /// Load a curated preset dataset and reset the explanation to Step 1.
+    ///
+    /// Per Contract §2.2: switching presets ALWAYS resets the explanation
+    /// state machine, auto-pauses playback, and reloads the graph topology.
+    pub fn load_preset(&mut self, id: PresetId) {
+        let dataset = PresetDataset::get(id);
+        self.load_dataset(&dataset);
+    }
+
+    /// Load a custom dataset from a CLI file path (FR-006, CHK001).
+    ///
+    /// Errors surface as `AppState::Error` rather than panicking.
+    pub fn load_file(&mut self, path: &std::path::Path) {
+        match PresetDataset::from_cli_path(path) {
+            Ok(dataset) => self.load_dataset(&dataset),
+            Err(err) => self.state = AppState::Error(err.to_string()),
+        }
+    }
+
+    /// Load a dataset (built-in or custom), rebuilding topology, physics,
+    /// and the explanation state.
+    ///
+    /// Any running worker is aborted; a fresh worker is spawned in the
+    /// paused state so playback only starts on user request.
+    pub fn load_dataset(&mut self, dataset: &PresetDataset) {
+        // Abort any running worker; auto-pause per Contract §2.2 while
+        // preserving the user's granularity mode.
+        self.control.abort.store(true, Ordering::SeqCst);
+        self.control.paused.store(true, Ordering::SeqCst);
+        self.control.step.store(false, Ordering::SeqCst);
+        self.playback.on_preset_switch();
+
+        let edges = dataset.edges.clone();
+        let leiden_edges: Vec<Edge<String>> = edges
+            .iter()
+            .map(|(s, t)| Edge {
+                source: s.clone(),
+                target: t.clone(),
+                weight: 1.0,
+            })
+            .collect();
+
+        match CsrGraph::from_edges(leiden_edges) {
+            Ok(graph) => {
+                let node_count = graph.node_count();
+                let mut nodes = Vec::with_capacity(node_count);
+                let mut init_partition = Vec::with_capacity(node_count);
+                for i in 0..node_count {
+                    if let Ok(u) = u32::try_from(i)
+                        && let Some(id) = graph.node_id(u)
+                    {
+                        nodes.push(id.clone());
+                        init_partition.push((id.clone(), u));
+                    }
+                }
+                init_partition.sort_by(|a, b| a.0.cmp(&b.0));
+
+                self.preset = dataset.id;
+                self.dataset_title = dataset.title.to_string();
+                self.dataset_edges = edges;
+                self.partition = init_partition;
+                self.iterations = 0;
+                self.quality = 0.0;
+                self.termination_reason = None;
+                self.events.clear();
+                self.state = AppState::Idle;
+
+                self.simulation = ForceSimulation::new(&nodes);
+                self.simulation.reset(&nodes);
+                self.explanation =
+                    ExplanationState::initial_unclustered(node_count, self.dataset_edges.len());
+
+                let worker_graph = graph.clone();
+                self.graph = Some(graph);
+
+                let (rx, worker) = spawn_leiden_worker(
+                    worker_graph,
+                    self.params.clone(),
+                    self.control.paused.clone(),
+                    self.control.step.clone(),
+                    self.control.abort.clone(),
+                );
+                self.rx = Some(rx);
+                self.worker_handle = Some(worker);
+            }
+            Err(err) => {
+                self.state = AppState::Error(err.to_string());
+            }
         }
     }
 
@@ -174,21 +358,21 @@ impl App {
                 self.quality = *quality;
                 self.state = AppState::Running { iteration: *index };
                 
-                if let Some(p) = partition {
-                    if let Some(ref graph) = self.graph {
-                        let n = graph.node_count();
-                        let mut next_partition = Vec::with_capacity(n);
-                        for i in 0..n {
-                            if let Ok(u_idx) = u32::try_from(i) {
-                                if let Some(id) = graph.node_id(u_idx) {
-                                    let comm = p.community_of(u_idx);
-                                    next_partition.push((id.clone(), comm));
-                                }
-                            }
+                if let Some(p) = partition
+                    && let Some(ref graph) = self.graph
+                {
+                    let n = graph.node_count();
+                    let mut next_partition = Vec::with_capacity(n);
+                    for i in 0..n {
+                        if let Ok(u_idx) = u32::try_from(i)
+                            && let Some(id) = graph.node_id(u_idx)
+                        {
+                            let comm = p.community_of(u_idx);
+                            next_partition.push((id.clone(), comm));
                         }
-                        next_partition.sort_by(|a, b| a.0.cmp(&b.0));
-                        self.partition = next_partition;
                     }
+                    next_partition.sort_by(|a, b| a.0.cmp(&b.0));
+                    self.partition = next_partition;
                 }
             }
             LeidenEvent::Terminated {
@@ -247,6 +431,73 @@ impl App {
         }
     }
 
+    /// Terminate the app immediately, aborting any running worker.
+    fn request_quit(&mut self) {
+        self.control.should_quit = true;
+        self.control.abort.store(true, Ordering::SeqCst);
+        self.control.paused.store(false, Ordering::SeqCst);
+    }
+
+    /// Handle a key press while the quit-confirmation prompt is open:
+    /// `y`/`Y` confirms quit, `n`/`N`/`Esc` restores the previous state.
+    fn handle_confirm_quit(&mut self, key: KeyEvent) {
+        if let AppState::ConfirmQuit(ref prev) = self.state {
+            match key.code {
+                KeyCode::Char('y' | 'Y') => {
+                    self.request_quit();
+                }
+                KeyCode::Char('n' | 'N') | KeyCode::Esc => {
+                    self.state = *prev.clone();
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Cycle keyboard focus to the next visible panel (Tab).
+    const fn focus_next_visible(&mut self) {
+        self.focus = match self.focus {
+            FocusPanel::CommunityList => {
+                if self.visibility.show_graph {
+                    FocusPanel::GraphView
+                } else if self.visibility.show_log {
+                    FocusPanel::LogPane
+                } else {
+                    FocusPanel::CommunityList
+                }
+            }
+            FocusPanel::GraphView => {
+                if self.visibility.show_log {
+                    FocusPanel::LogPane
+                } else {
+                    FocusPanel::CommunityList
+                }
+            }
+            FocusPanel::LogPane => FocusPanel::CommunityList,
+        };
+    }
+
+    /// Restart the run from `Idle`/`Done` (r): respawn the worker when a
+    /// graph is loaded, then reset the run state.
+    fn restart_run(&mut self) {
+        if let Some(ref graph) = self.graph {
+            self.control.abort.store(false, Ordering::SeqCst);
+            let (rx, worker) = spawn_leiden_worker(
+                graph.clone(),
+                self.params.clone(),
+                self.control.paused.clone(),
+                self.control.step.clone(),
+                self.control.abort.clone(),
+            );
+            self.rx = Some(rx);
+            self.worker_handle = Some(worker);
+        }
+        self.state = AppState::Running { iteration: 0 };
+        self.iterations = 0;
+        self.quality = 0.0;
+        self.events.clear();
+    }
+
     /// Handle a keyboard event.
     pub fn handle_key(&mut self, key: KeyEvent) {
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
@@ -254,9 +505,7 @@ impl App {
                 self.state = AppState::ConfirmQuit(Box::new(self.state.clone()));
                 return;
             }
-            self.control.should_quit = true;
-            self.control.abort.store(true, Ordering::SeqCst);
-            self.control.paused.store(false, Ordering::SeqCst);
+            self.request_quit();
             return;
         }
 
@@ -266,18 +515,8 @@ impl App {
             return;
         }
 
-        if let AppState::ConfirmQuit(ref prev) = self.state {
-            match key.code {
-                KeyCode::Char('y') | KeyCode::Char('Y') => {
-                    self.control.should_quit = true;
-                    self.control.abort.store(true, Ordering::SeqCst);
-                    self.control.paused.store(false, Ordering::SeqCst);
-                }
-                KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
-                    self.state = *prev.clone();
-                }
-                _ => {}
-            }
+        if matches!(self.state, AppState::ConfirmQuit(_)) {
+            self.handle_confirm_quit(key);
             return;
         }
 
@@ -286,20 +525,31 @@ impl App {
                 if matches!(self.state, AppState::Running { .. }) {
                     self.state = AppState::ConfirmQuit(Box::new(self.state.clone()));
                 } else {
-                    self.control.should_quit = true;
-                    self.control.abort.store(true, Ordering::SeqCst);
-                    self.control.paused.store(false, Ordering::SeqCst);
+                    self.request_quit();
                 }
             }
-            KeyCode::Char('?') => {
-                self.visibility.help_open = !self.visibility.help_open;
+            KeyCode::Char('1') => self.load_preset(PresetId::KarateClub),
+            KeyCode::Char('2') => self.load_preset(PresetId::TwoCliques),
+            KeyCode::Char('3') => self.load_preset(PresetId::RandomMess),
+            KeyCode::Char(' ') => {
+                // Space: toggle play/pause auto-stepping (Contract §2.1)
+                self.playback.toggle_play();
+                let paused = !self.playback.is_playing;
+                self.control.paused.store(paused, Ordering::SeqCst);
             }
-            KeyCode::Char('g') => {
-                self.visibility.show_graph = !self.visibility.show_graph;
+            KeyCode::Char('n') | KeyCode::Right => {
+                // n / Right Arrow: advance exactly one step, auto-pausing
+                self.playback.request_step();
+                self.control.paused.store(true, Ordering::SeqCst);
+                self.control.step.store(true, Ordering::SeqCst);
             }
-            KeyCode::Char('l') => {
-                self.visibility.show_log = !self.visibility.show_log;
+            KeyCode::Char('t') => {
+                // t: toggle PhaseLevel / MicroStep granularity
+                self.playback.toggle_granularity();
             }
+            KeyCode::Char('?') => self.visibility.help_open = !self.visibility.help_open,
+            KeyCode::Char('g') => self.visibility.show_graph = !self.visibility.show_graph,
+            KeyCode::Char('l') => self.visibility.show_log = !self.visibility.show_log,
             KeyCode::Char('p') => {
                 let current = self.control.paused.load(Ordering::SeqCst);
                 self.control.paused.store(!current, Ordering::SeqCst);
@@ -308,27 +558,7 @@ impl App {
                 self.control.paused.store(true, Ordering::SeqCst);
                 self.control.step.store(true, Ordering::SeqCst);
             }
-            KeyCode::Tab => {
-                self.focus = match self.focus {
-                    FocusPanel::CommunityList => {
-                        if self.visibility.show_graph {
-                            FocusPanel::GraphView
-                        } else if self.visibility.show_log {
-                            FocusPanel::LogPane
-                        } else {
-                            FocusPanel::CommunityList
-                        }
-                    }
-                    FocusPanel::GraphView => {
-                        if self.visibility.show_log {
-                            FocusPanel::LogPane
-                        } else {
-                            FocusPanel::CommunityList
-                        }
-                    }
-                    FocusPanel::LogPane => FocusPanel::CommunityList,
-                };
-            }
+            KeyCode::Tab => self.focus_next_visible(),
             KeyCode::Up => {
                 if self.selected_community > 0 {
                     self.selected_community -= 1;
@@ -341,23 +571,7 @@ impl App {
                 }
             }
             KeyCode::Char('r') => match self.state {
-                AppState::Done { .. } | AppState::Idle => {
-                    if let Some(ref graph) = self.graph {
-                        self.control.abort.store(false, Ordering::SeqCst);
-                        let (rx, worker) = spawn_leiden_worker(graph.clone(), self.params.clone(), self.control.paused.clone(), self.control.step.clone(), self.control.abort.clone());
-                        self.rx = Some(rx);
-                        self.worker_handle = Some(worker);
-                        self.state = AppState::Running { iteration: 0 };
-                        self.iterations = 0;
-                        self.quality = 0.0;
-                        self.events.clear();
-                    } else {
-                        self.state = AppState::Running { iteration: 0 };
-                        self.iterations = 0;
-                        self.quality = 0.0;
-                        self.events.clear();
-                    }
-                }
+                AppState::Done { .. } | AppState::Idle => self.restart_run(),
                 AppState::Error(_) => {
                     self.state = AppState::Idle;
                 }
