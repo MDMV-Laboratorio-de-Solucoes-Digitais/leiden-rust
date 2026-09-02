@@ -12,10 +12,10 @@
 
 | Requirement | Value | Source |
 |---|---|---|
-| Rust edition | 2024 | [Cargo.toml](file:///home/luis/development/leiden/leiden/Cargo.toml#L45) |
+| Rust edition | 2024 | [Cargo.toml](file:///home/luis/development/leiden/Cargo.toml#L45) |
 | MSRV | 1.88.0 | Ratatui 0.30.2 `rust_version` floor |
-| Ratatui | 0.30.2 (pinned) | [leiden-tui/Cargo.toml](file:///home/luis/development/leiden/leiden/crates/leiden-tui/Cargo.toml#L18) |
-| Crossterm | 0.29.0 | [leiden-tui/Cargo.toml](file:///home/luis/development/leiden/leiden/crates/leiden-tui/Cargo.toml#L19) |
+| Ratatui | 0.30.2 (pinned) | [leiden-tui/Cargo.toml](file:///home/luis/development/leiden/crates/leiden-tui/Cargo.toml#L18) |
+| Crossterm | 0.29.0 | [leiden-tui/Cargo.toml](file:///home/luis/development/leiden/crates/leiden-tui/Cargo.toml#L19) |
 
 ### 0.2 Terminal Requirements
 
