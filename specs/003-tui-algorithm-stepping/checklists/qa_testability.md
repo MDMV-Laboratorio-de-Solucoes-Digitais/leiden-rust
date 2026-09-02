@@ -10,22 +10,22 @@
 
 ## Acceptance Criteria Quality
 
-- [ ] CHK001 Are exact, measurable boundaries provided for visual "spatial blocks" and "community-clustered grid" layout testing? [Measurability, Spec §Functional Requirements]
-- [ ] CHK002 Is the mechanism for verifying the `<10% overhead` constraint explicitly defined (e.g., benchmark harness, specific reference dataset)? [Clarity, Spec §Success Criteria]
-- [ ] CHK003 Can the "exits cleanly without producing any results" state upon aborting (`q`) be objectively verified in an automated test environment? [Measurability, Spec §Edge Cases]
+- [x] CHK001 Are exact, measurable boundaries provided for visual "spatial blocks" and "community-clustered grid" layout testing? [Measurability, Spec §Functional Requirements]
+- [x] CHK002 Is the mechanism for verifying the `<10% overhead` constraint explicitly defined (e.g., benchmark harness, specific reference dataset)? [Clarity, Spec §Success Criteria]
+- [x] CHK003 Can the "exits cleanly without producing any results" state upon aborting (`q`) be objectively verified in an automated test environment? [Measurability, Spec §Edge Cases]
 
 ## Scenario & Edge Case Coverage
 
-- [ ] CHK004 Are requirements defined for what the TUI displays if the algorithm converges on the exact same iteration it is paused? [Coverage, Edge Case]
-- [ ] CHK005 Are error/recovery requirements specified for scenarios where the background thread unexpectedly panics while the UI is waiting? [Coverage, Exception Flow]
-- [ ] CHK006 Is the fallback behavior specified for graphs whose community count exceeds available color palettes in Ratatui? [Coverage, UX Edge Case]
-- [ ] CHK007 Are cleanup state requirements explicitly defined for interrupted emissions during an abort signal? [Coverage, Edge Case]
+- [x] CHK004 Are requirements defined for what the TUI displays if the algorithm converges on the exact same iteration it is paused? [Coverage, Edge Case]
+- [x] CHK005 Are error/recovery requirements specified for scenarios where the background thread unexpectedly panics while the UI is waiting? [Coverage, Exception Flow]
+- [x] CHK006 Is the fallback behavior specified for graphs whose community count exceeds available color palettes in Ratatui? [Coverage, UX Edge Case]
+- [x] CHK007 Are cleanup state requirements explicitly defined for interrupted emissions during an abort signal? [Coverage, Edge Case]
 
 ## Concurrency & Thread Sync Consistency
 
-- [ ] CHK008 Are the race-condition prevention requirements for `ControlFlags` (`step`, `paused`, `abort`) explicitly documented to guide concurrency testing? [Completeness, Plan §Data Model]
-- [ ] CHK009 Are the requirements consistent between the orchestrator's spin/sleep-wait loop and the UI's frame render rate? [Consistency, Contracts]
-- [ ] CHK010 Are polling intervals for the `AtomicBool` flags quantified to ensure testable latency limits between a user keypress and the thread response? [Clarity, Gap]
+- [x] CHK008 Are the race-condition prevention requirements for `ControlFlags` (`step`, `paused`, `abort`) explicitly documented to guide concurrency testing? [Completeness, Plan §Data Model]
+- [x] CHK009 Are the requirements consistent between the orchestrator's spin/sleep-wait loop and the UI's frame render rate? [Consistency, Contracts]
+- [x] CHK010 Are polling intervals for the `AtomicBool` flags quantified to ensure testable latency limits between a user keypress and the thread response? [Clarity, Gap]
 
 ## Notes
 
