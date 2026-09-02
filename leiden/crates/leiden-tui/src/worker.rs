@@ -1,5 +1,7 @@
 //! Background worker thread for executing Leiden runs asynchronously.
 
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
 use std::thread::{self, JoinHandle};
 
@@ -10,6 +12,9 @@ use leiden::{CsrGraph, Leiden, LeidenEvent, LeidenParameters, RunResult};
 pub fn spawn_leiden_worker(
     graph: CsrGraph<String>,
     params: LeidenParameters,
+    paused: Arc<AtomicBool>,
+    step: Arc<AtomicBool>,
+    abort: Arc<AtomicBool>,
 ) -> (
     Receiver<LeidenEvent>,
     JoinHandle<Result<RunResult<String>, leiden::LeidenError>>,
@@ -39,10 +44,17 @@ pub fn spawn_leiden_worker(
         }
     });
 
+    let control_flags = Arc::new(leiden::orchestrator::ControlFlags {
+        paused,
+        step,
+        abort,
+    });
+
     let worker_handle = thread::spawn(move || {
         let result = Leiden::new()
             .with_parameters(params)
             .with_event_sink(proxy_tx)
+            .with_control_flags(control_flags)
             .run(&graph);
 
         let _ = forwarder_handle.join();
