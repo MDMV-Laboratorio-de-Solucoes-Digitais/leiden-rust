@@ -27,28 +27,22 @@ jobs:
         uses: taiki-e/install-action@nextest
 
       - name: Rustfmt Check
-        working-directory: leiden
         run: cargo fmt --check
 
       - name: Clippy Workspace Check
-        working-directory: leiden
         run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Unit & Integration Tests (Debug)
-        working-directory: leiden
         run: cargo nextest run --workspace
 
       - name: Release Tests (Performance SC-001 & Determinism)
-        working-directory: leiden
         run: cargo nextest run --workspace --release
 
       - name: Documentation Build
-        working-directory: leiden
         run: cargo doc --workspace --no-deps
 
       - name: Install cargo-deny
         uses: taiki-e/install-action@cargo-deny
 
       - name: Cargo Deny Check
-        working-directory: leiden
         run: cargo deny --config deny.toml check
