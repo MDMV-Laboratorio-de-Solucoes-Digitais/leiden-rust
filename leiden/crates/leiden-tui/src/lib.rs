@@ -17,3 +17,4 @@ pub use explanation::{ExplanationState, Phase};
 pub use logging::{LogPaneLayer, LogRing};
 pub use presets::{PresetDataset, PresetId};
 pub use simulation::{ForceSimulation, Point2D};
+pub use ui::TerminalDimensionGuard;
