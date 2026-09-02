@@ -94,7 +94,7 @@
 ### Implementation for User Story 3
 
 - [X] T019 [US3] Execute the FR-009 post-merge validation checkpoint after PR 1 merges: on updated `dev`, run the full verification suite from the repository root plus quickstart.md scenarios 1 and 2 — this checkpoint MUST pass before any PR 2 work (fix-forward vs revert decision per FR-009 if it fails)
-- [ ] T020 [P] [US3] Regenerate the codebase knowledge graph at the new root location (`graphify-out/` refresh per Constitution §VIII and AGENTS.md; gitignored, local maintenance action — not a PR artifact)
+- [X] T020 [P] [US3] Regenerate the codebase knowledge graph at the new root location (`graphify-out/` refresh per Constitution §VIII and AGENTS.md; gitignored, local maintenance action — not a PR artifact)
 - [X] T021 [US3] Create branch `005-workspace-root-move-docs` from updated `dev` (PR 2 requires the flattened layout to exist on its base)
 - [X] T022 [US3] Fix `README.md` relative links to the new layout: `../specs/001-leiden-algorithm/tasks.md` → `specs/001-leiden-algorithm/tasks.md` and `../.specify/memory/constitution.md` → `.specify/memory/constitution.md` (FR-006)
 - [X] T023 [P] [US3] Fix `design-system.md` absolute `file:///` links: update the three `file:///home/…/leiden/leiden/…` targets (Cargo.toml, leiden-tui/Cargo.toml ×2) to the post-move locations (FR-006)
