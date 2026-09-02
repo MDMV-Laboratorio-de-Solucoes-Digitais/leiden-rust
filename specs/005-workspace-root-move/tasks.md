@@ -62,7 +62,7 @@
 - [X] T011 [US1] Run the full verification suite from the repository root (`cargo check --workspace`, `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo nextest run --workspace`, `cargo nextest run --workspace --release`, `cargo doc --workspace --no-deps`, `cargo deny --config deny.toml check`) and compare the profile against `specs/005-workspace-root-move/baseline.md` (FR-004, SC-004 — must match T003's baseline)
 - [X] T012 [US1] Commit the minimal functional fixes as one logical change: `chore(workspace): repoint CI, ignore rules, and test path to repository root` (constitution atomic-commit rule; distinct from the restructuring commit)
 - [X] T013 [US1] Run quickstart.md validation scenarios 1 (root inventory + no `leiden/`), 3 (fixture-path integrity incl. `cargo test -p leiden --test observability_checklist`), and 5 (ignore rules at new location) from the repository root
-- [ ] T014 [US1] Open PR 1 (`005-workspace-root-move` → `dev`) with the FR-009 revertibility note and the baseline comparison in the description; maintainer review per Constitution §Review (pushing/PR creation requires explicit user approval)
+- [X] T014 [US1] Open PR 1 (`005-workspace-root-move` → `dev`) with the FR-009 revertibility note and the baseline comparison in the description; maintainer review per Constitution §Review (pushing/PR creation requires explicit user approval)
 
 **Checkpoint**: PR 1 open — repository root is the workspace root; suite green with baseline-identical profile; US1 independently validated
 
