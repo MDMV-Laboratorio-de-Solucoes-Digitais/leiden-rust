@@ -5,6 +5,7 @@ pub mod error;
 pub mod event;
 pub mod logging;
 pub mod presets;
+pub mod simulation;
 pub mod ui;
 pub mod worker;
 
@@ -13,3 +14,4 @@ pub use error::TuiError;
 pub use event::{AppAction, map_key_event};
 pub use logging::{LogPaneLayer, LogRing};
 pub use presets::{PresetDataset, PresetId};
+pub use simulation::{ForceSimulation, Point2D};
