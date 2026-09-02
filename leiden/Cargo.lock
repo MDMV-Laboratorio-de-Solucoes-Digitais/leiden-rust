@@ -882,6 +882,7 @@ dependencies = [
  "leiden",
  "leiden-cli",
  "ratatui",
+ "signal-hook",
  "thiserror 2.0.20",
  "tracing",
  "tracing-subscriber",
