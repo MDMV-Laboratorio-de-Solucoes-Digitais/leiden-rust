@@ -1,15 +1,18 @@
 //! Application state and transition logic for `leiden-tui`.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use leiden::{CsrGraph, LeidenEvent, LeidenParameters, RunResult, TerminationReason};
+use leiden::{CsrGraph, Edge, LeidenEvent, LeidenParameters, RunResult, TerminationReason};
 
+use crate::explanation::ExplanationState;
 use crate::logging::LogRing;
+use crate::presets::{PresetDataset, PresetId};
+use crate::simulation::ForceSimulation;
 use crate::worker::spawn_leiden_worker;
 
 /// High-level lifecycle state of the TUI application.
@@ -32,7 +35,7 @@ pub enum AppState {
     /// An error occurred during graph loading or execution.
     Error(String),
     /// Prompting for quit confirmation.
-    ConfirmQuit(Box<AppState>),
+    ConfirmQuit(Box<Self>),
 }
 
 /// Identifies which panel currently holds keyboard focus.
@@ -71,6 +74,78 @@ pub struct PanelVisibility {
     pub help_open: bool,
 }
 
+/// Stepping granularity mode (FR-005, Data Model §2.5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum GranularityMode {
+    /// Pauses at major algorithm phases (Local Moving, Refinement,
+    /// Aggregation).
+    #[default]
+    PhaseLevel,
+    /// Pauses after individual node migrations and sub-steps.
+    MicroStep,
+}
+
+/// Controls interactive playback and stepping state (Data Model §2.5).
+#[derive(Debug, Clone)]
+pub struct PlaybackController {
+    /// Whether auto-play is actively running.
+    pub is_playing: bool,
+    /// Auto-play tick speed in milliseconds (fixed: 200ms).
+    pub tick_speed_ms: u64,
+    /// Single manual step requested flag.
+    pub step_requested: bool,
+    /// Active granularity mode (persists across preset switches).
+    pub granularity: GranularityMode,
+}
+
+impl Default for PlaybackController {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl PlaybackController {
+    /// Create a default paused controller in `PhaseLevel` mode.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            is_playing: false,
+            tick_speed_ms: 200,
+            step_requested: false,
+            granularity: GranularityMode::PhaseLevel,
+        }
+    }
+
+    /// Toggle play/pause state.
+    pub const fn toggle_play(&mut self) {
+        self.is_playing = !self.is_playing;
+        if self.is_playing {
+            self.step_requested = false;
+        }
+    }
+
+    /// Request a single step forward (auto-pauses if playing).
+    pub const fn request_step(&mut self) {
+        self.is_playing = false;
+        self.step_requested = true;
+    }
+
+    /// Toggle between `PhaseLevel` and `MicroStep` granularity.
+    pub const fn toggle_granularity(&mut self) {
+        self.granularity = match self.granularity {
+            GranularityMode::PhaseLevel => GranularityMode::MicroStep,
+            GranularityMode::MicroStep => GranularityMode::PhaseLevel,
+        };
+    }
+
+    /// Handle preset switch: resets state to Step 1, auto-pauses, and
+    /// preserves the user's selected granularity (Contract §2.2).
+    pub const fn on_preset_switch(&mut self) {
+        self.is_playing = false;
+        self.step_requested = false;
+    }
+}
+
 impl Default for PanelVisibility {
     fn default() -> Self {
         Self {
@@ -107,6 +182,11 @@ pub struct App {
     pub graph: Option<CsrGraph<String>>,
     /// Received Leiden events.
     pub events: Vec<LeidenEvent>,
+    /// Events received from the worker but not yet applied to the UI state
+    /// (FR-005). Manual stepping drains this playhead buffer one event at a
+    /// time (`MicroStep`) or up to the next phase boundary (`PhaseLevel`),
+    /// while auto-play flushes it completely.
+    pub pending_events: VecDeque<LeidenEvent>,
     /// Shared log ring buffer for log pane.
     pub log_ring: Arc<Mutex<LogRing>>,
     /// Current node-to-community partition assignments.
@@ -129,6 +209,18 @@ pub struct App {
     pub rx: Option<Receiver<LeidenEvent>>,
     /// Background worker join handle.
     pub worker_handle: Option<JoinHandle<Result<RunResult<String>, leiden::LeidenError>>>,
+    /// Currently active demo preset (FR-006).
+    pub preset: PresetId,
+    /// Display title of the active dataset (custom files show the file name).
+    pub dataset_title: String,
+    /// Edges of the active dataset used by the graph canvas and physics.
+    pub dataset_edges: Vec<(String, String)>,
+    /// 2D force-directed layout simulation (FR-003).
+    pub simulation: ForceSimulation,
+    /// Current 3-tier plain-English explanation state (FR-004).
+    pub explanation: ExplanationState,
+    /// Playback and stepping controller (FR-005).
+    pub playback: PlaybackController,
 }
 
 impl App {
@@ -141,6 +233,7 @@ impl App {
             graph_path: None,
             graph: None,
             events: Vec::new(),
+            pending_events: VecDeque::new(),
             log_ring: Arc::new(Mutex::new(LogRing::default())),
             partition: Vec::new(),
             quality: 0.0,
@@ -152,6 +245,104 @@ impl App {
             selected_community: 0,
             rx: None,
             worker_handle: None,
+            preset: PresetId::KarateClub,
+            dataset_title: PresetId::KarateClub.title().to_string(),
+            dataset_edges: Vec::new(),
+            simulation: ForceSimulation::new(&[]),
+            explanation: ExplanationState::initial_unclustered(0, 0),
+            playback: PlaybackController::new(),
+        }
+    }
+
+    /// Load a curated preset dataset and reset the explanation to Step 1.
+    ///
+    /// Per Contract §2.2: switching presets ALWAYS resets the explanation
+    /// state machine, auto-pauses playback, and reloads the graph topology.
+    pub fn load_preset(&mut self, id: PresetId) {
+        let dataset = PresetDataset::get(id);
+        self.load_dataset(&dataset);
+    }
+
+    /// Load a custom dataset from a CLI file path (FR-006, CHK001).
+    ///
+    /// Errors surface as `AppState::Error` rather than panicking.
+    pub fn load_file(&mut self, path: &std::path::Path) {
+        match PresetDataset::from_cli_path(path) {
+            Ok(dataset) => self.load_dataset(&dataset),
+            Err(err) => self.state = AppState::Error(err.to_string()),
+        }
+    }
+
+    /// Load a dataset (built-in or custom), rebuilding topology, physics,
+    /// and the explanation state.
+    ///
+    /// Any running worker is aborted; a fresh worker is spawned in the
+    /// paused state so playback only starts on user request.
+    pub fn load_dataset(&mut self, dataset: &PresetDataset) {
+        // Abort any running worker; auto-pause per Contract §2.2 while
+        // preserving the user's granularity mode.
+        self.control.abort.store(true, Ordering::SeqCst);
+        self.control.paused.store(true, Ordering::SeqCst);
+        self.control.step.store(false, Ordering::SeqCst);
+        self.playback.on_preset_switch();
+
+        let edges = dataset.edges.clone();
+        let leiden_edges: Vec<Edge<String>> = edges
+            .iter()
+            .map(|(s, t)| Edge {
+                source: s.clone(),
+                target: t.clone(),
+                weight: 1.0,
+            })
+            .collect();
+
+        match CsrGraph::from_edges(leiden_edges) {
+            Ok(graph) => {
+                let node_count = graph.node_count();
+                let mut nodes = Vec::with_capacity(node_count);
+                let mut init_partition = Vec::with_capacity(node_count);
+                for i in 0..node_count {
+                    if let Ok(u) = u32::try_from(i)
+                        && let Some(id) = graph.node_id(u)
+                    {
+                        nodes.push(id.clone());
+                        init_partition.push((id.clone(), u));
+                    }
+                }
+                init_partition.sort_by(|a, b| a.0.cmp(&b.0));
+
+                self.preset = dataset.id;
+                self.dataset_title = dataset.title.to_string();
+                self.dataset_edges = edges;
+                self.partition = init_partition;
+                self.iterations = 0;
+                self.quality = 0.0;
+                self.termination_reason = None;
+                self.events.clear();
+                self.pending_events.clear();
+                self.state = AppState::Idle;
+
+                self.simulation = ForceSimulation::new(&nodes);
+                self.simulation.reset(&nodes);
+                self.explanation =
+                    ExplanationState::initial_unclustered(node_count, self.dataset_edges.len());
+
+                let worker_graph = graph.clone();
+                self.graph = Some(graph);
+
+                let (rx, worker) = spawn_leiden_worker(
+                    worker_graph,
+                    self.params.clone(),
+                    self.control.paused.clone(),
+                    self.control.step.clone(),
+                    self.control.abort.clone(),
+                );
+                self.rx = Some(rx);
+                self.worker_handle = Some(worker);
+            }
+            Err(err) => {
+                self.state = AppState::Error(err.to_string());
+            }
         }
     }
 
@@ -161,6 +352,10 @@ impl App {
     }
 
     /// Process a received `LeidenEvent`.
+    ///
+    /// Updates the lifecycle state machine, the explanation panel (FR-004,
+    /// US2/AC1), and the event log. `Terminated` additionally renders the
+    /// completion summary via [`ExplanationState::completed`] (US3/AC1).
     pub fn push(&mut self, event: LeidenEvent) {
         event.emit();
         match &event {
@@ -179,21 +374,21 @@ impl App {
                 self.quality = *quality;
                 self.state = AppState::Running { iteration: *index };
 
-                if let Some(p) = partition {
-                    if let Some(ref graph) = self.graph {
-                        let n = graph.node_count();
-                        let mut next_partition = Vec::with_capacity(n);
-                        for i in 0..n {
-                            if let Ok(u_idx) = u32::try_from(i) {
-                                if let Some(id) = graph.node_id(u_idx) {
-                                    let comm = p.community_of(u_idx);
-                                    next_partition.push((id.clone(), comm));
-                                }
-                            }
+                if let Some(p) = partition
+                    && let Some(ref graph) = self.graph
+                {
+                    let n = graph.node_count();
+                    let mut next_partition = Vec::with_capacity(n);
+                    for i in 0..n {
+                        if let Ok(u_idx) = u32::try_from(i)
+                            && let Some(id) = graph.node_id(u_idx)
+                        {
+                            let comm = p.community_of(u_idx);
+                            next_partition.push((id.clone(), comm));
                         }
-                        next_partition.sort_by(|a, b| a.0.cmp(&b.0));
-                        self.partition = next_partition;
                     }
+                    next_partition.sort_by(|a, b| a.0.cmp(&b.0));
+                    self.partition = next_partition;
                 }
             }
             LeidenEvent::Terminated {
@@ -211,22 +406,52 @@ impl App {
             }
             _ => {}
         }
+        self.update_explanation(&event);
         self.events.push(event);
     }
 
+    /// Refresh the 3-tier explanation panel from `event` (FR-004).
+    ///
+    /// `Terminated` renders the completion summary using the distinct
+    /// community count of the current partition and the final quality;
+    /// every other event maps to its phase narrative with the live
+    /// community count attached.
+    fn update_explanation(&mut self, event: &LeidenEvent) {
+        let communities = distinct_community_count(&self.partition);
+        self.explanation = if matches!(event, LeidenEvent::Terminated { .. }) {
+            ExplanationState::completed(communities, self.quality)
+        } else {
+            ExplanationState::from_leiden_event(event, communities)
+        };
+    }
+
+    /// Set the explanation panel to the final completion summary (US3/AC1),
+    /// derived from the current partition and quality.
+    fn complete_explanation(&mut self) {
+        let communities = distinct_community_count(&self.partition);
+        self.explanation = ExplanationState::completed(communities, self.quality);
+    }
+
     /// Drain all pending events from the worker receiver channel.
+    ///
+    /// Incoming events are first buffered in [`App::pending_events`] and
+    /// then applied to the UI state according to the active playback mode
+    /// (FR-005): auto-play flushes the whole playhead, while a manual step
+    /// applies exactly one event (`MicroStep`) or all events up to and
+    /// including the next phase boundary (`PhaseLevel`). The worker is
+    /// reaped only after every event has been applied so the playhead
+    /// never jumps ahead of the rendered narrative.
     pub fn drain(&mut self) {
         if let Some(ref rx) = self.rx {
-            let mut pending = Vec::new();
             while let Ok(event) = rx.try_recv() {
-                pending.push(event);
-            }
-            for event in pending {
-                self.push(event);
+                self.pending_events.push_back(event);
             }
         }
+        self.apply_pending_events();
 
-        if let Some(handle) = self.worker_handle.take() {
+        if self.pending_events.is_empty()
+            && let Some(handle) = self.worker_handle.take()
+        {
             if handle.is_finished() {
                 match handle.join() {
                     Ok(Ok(run_result)) => {
@@ -238,6 +463,7 @@ impl App {
                             iterations: run_result.iterations,
                             quality: run_result.quality,
                         };
+                        self.complete_explanation();
                     }
                     Ok(Err(err)) => {
                         self.state = AppState::Error(err.to_string());
@@ -252,6 +478,120 @@ impl App {
         }
     }
 
+    /// Apply buffered events to the UI state per the playback mode (FR-005).
+    ///
+    /// While auto-playing, every buffered event is applied immediately.
+    /// While paused with a pending step request, `MicroStep` applies one
+    /// event and `PhaseLevel` advances the playhead to the next phase
+    /// boundary event; the step request only clears once an event has
+    /// actually been applied, so a request waits for the worker to emit.
+    fn apply_pending_events(&mut self) {
+        if self.playback.is_playing {
+            while let Some(event) = self.pending_events.pop_front() {
+                self.push(event);
+            }
+            return;
+        }
+
+        if !self.playback.step_requested {
+            return;
+        }
+
+        match self.playback.granularity {
+            GranularityMode::MicroStep => {
+                if let Some(event) = self.pending_events.pop_front() {
+                    self.push(event);
+                    self.playback.step_requested = false;
+                }
+            }
+            GranularityMode::PhaseLevel => {
+                let mut applied = 0;
+                while let Some(event) = self.pending_events.pop_front() {
+                    applied += 1;
+                    let boundary = is_phase_boundary(&event);
+                    self.push(event);
+                    if boundary {
+                        break;
+                    }
+                }
+                if applied > 0 {
+                    self.playback.step_requested = false;
+                }
+            }
+        }
+    }
+
+    /// Terminate the app immediately, aborting any running worker.
+    fn request_quit(&mut self) {
+        self.control.should_quit = true;
+        self.control.abort.store(true, Ordering::SeqCst);
+        self.control.paused.store(false, Ordering::SeqCst);
+    }
+
+    /// Handle a key press while the quit-confirmation prompt is open:
+    /// `y`/`Y` confirms quit, `n`/`N`/`Esc` restores the previous state.
+    fn handle_confirm_quit(&mut self, key: KeyEvent) {
+        if let AppState::ConfirmQuit(ref prev) = self.state {
+            match key.code {
+                KeyCode::Char('y' | 'Y') => {
+                    self.request_quit();
+                }
+                KeyCode::Char('n' | 'N') | KeyCode::Esc => {
+                    self.state = *prev.clone();
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Cycle keyboard focus to the next visible panel (Tab).
+    const fn focus_next_visible(&mut self) {
+        self.focus = match self.focus {
+            FocusPanel::CommunityList => {
+                if self.visibility.show_graph {
+                    FocusPanel::GraphView
+                } else if self.visibility.show_log {
+                    FocusPanel::LogPane
+                } else {
+                    FocusPanel::CommunityList
+                }
+            }
+            FocusPanel::GraphView => {
+                if self.visibility.show_log {
+                    FocusPanel::LogPane
+                } else {
+                    FocusPanel::CommunityList
+                }
+            }
+            FocusPanel::LogPane => FocusPanel::CommunityList,
+        };
+    }
+
+    /// Restart the run from `Idle`/`Done` (r): respawn the worker when a
+    /// graph is loaded, then reset the run state.
+    fn restart_run(&mut self) {
+        if let Some(ref graph) = self.graph {
+            self.control.abort.store(false, Ordering::SeqCst);
+            let (rx, worker) = spawn_leiden_worker(
+                graph.clone(),
+                self.params.clone(),
+                self.control.paused.clone(),
+                self.control.step.clone(),
+                self.control.abort.clone(),
+            );
+            self.rx = Some(rx);
+            self.worker_handle = Some(worker);
+        }
+        self.state = AppState::Running { iteration: 0 };
+        self.iterations = 0;
+        self.quality = 0.0;
+        self.events.clear();
+        self.pending_events.clear();
+        let node_count = self.graph.as_ref().map_or(0, CsrGraph::node_count);
+        self.explanation =
+            ExplanationState::initial_unclustered(node_count, self.dataset_edges.len());
+    }
+
     /// Handle a keyboard event.
     pub fn handle_key(&mut self, key: KeyEvent) {
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
@@ -259,9 +599,7 @@ impl App {
                 self.state = AppState::ConfirmQuit(Box::new(self.state.clone()));
                 return;
             }
-            self.control.should_quit = true;
-            self.control.abort.store(true, Ordering::SeqCst);
-            self.control.paused.store(false, Ordering::SeqCst);
+            self.request_quit();
             return;
         }
 
@@ -271,18 +609,8 @@ impl App {
             return;
         }
 
-        if let AppState::ConfirmQuit(ref prev) = self.state {
-            match key.code {
-                KeyCode::Char('y') | KeyCode::Char('Y') => {
-                    self.control.should_quit = true;
-                    self.control.abort.store(true, Ordering::SeqCst);
-                    self.control.paused.store(false, Ordering::SeqCst);
-                }
-                KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
-                    self.state = *prev.clone();
-                }
-                _ => {}
-            }
+        if matches!(self.state, AppState::ConfirmQuit(_)) {
+            self.handle_confirm_quit(key);
             return;
         }
 
@@ -291,20 +619,35 @@ impl App {
                 if matches!(self.state, AppState::Running { .. }) {
                     self.state = AppState::ConfirmQuit(Box::new(self.state.clone()));
                 } else {
-                    self.control.should_quit = true;
-                    self.control.abort.store(true, Ordering::SeqCst);
-                    self.control.paused.store(false, Ordering::SeqCst);
+                    self.request_quit();
                 }
             }
-            KeyCode::Char('?') => {
-                self.visibility.help_open = !self.visibility.help_open;
+            KeyCode::Char('1') => self.load_preset(PresetId::KarateClub),
+            KeyCode::Char('2') => self.load_preset(PresetId::TwoCliques),
+            KeyCode::Char('3') => self.load_preset(PresetId::RandomMess),
+            KeyCode::Char(' ') => {
+                // Space: toggle play/pause auto-stepping (Contract §2.1)
+                self.playback.toggle_play();
+                let paused = !self.playback.is_playing;
+                self.control.paused.store(paused, Ordering::SeqCst);
             }
-            KeyCode::Char('g') => {
-                self.visibility.show_graph = !self.visibility.show_graph;
+            KeyCode::Char('n') | KeyCode::Right => {
+                // n / Right Arrow: advance exactly one step, auto-pausing.
+                // Buffered events are consumed locally first; the worker is
+                // only unblocked when the playhead has caught up (FR-005).
+                self.playback.request_step();
+                self.control.paused.store(true, Ordering::SeqCst);
+                if self.pending_events.is_empty() {
+                    self.control.step.store(true, Ordering::SeqCst);
+                }
             }
-            KeyCode::Char('l') => {
-                self.visibility.show_log = !self.visibility.show_log;
+            KeyCode::Char('t') => {
+                // t: toggle PhaseLevel / MicroStep granularity
+                self.playback.toggle_granularity();
             }
+            KeyCode::Char('?') => self.visibility.help_open = !self.visibility.help_open,
+            KeyCode::Char('g') => self.visibility.show_graph = !self.visibility.show_graph,
+            KeyCode::Char('l') => self.visibility.show_log = !self.visibility.show_log,
             KeyCode::Char('p') => {
                 let current = self.control.paused.load(Ordering::SeqCst);
                 self.control.paused.store(!current, Ordering::SeqCst);
@@ -313,27 +656,7 @@ impl App {
                 self.control.paused.store(true, Ordering::SeqCst);
                 self.control.step.store(true, Ordering::SeqCst);
             }
-            KeyCode::Tab => {
-                self.focus = match self.focus {
-                    FocusPanel::CommunityList => {
-                        if self.visibility.show_graph {
-                            FocusPanel::GraphView
-                        } else if self.visibility.show_log {
-                            FocusPanel::LogPane
-                        } else {
-                            FocusPanel::CommunityList
-                        }
-                    }
-                    FocusPanel::GraphView => {
-                        if self.visibility.show_log {
-                            FocusPanel::LogPane
-                        } else {
-                            FocusPanel::CommunityList
-                        }
-                    }
-                    FocusPanel::LogPane => FocusPanel::CommunityList,
-                };
-            }
+            KeyCode::Tab => self.focus_next_visible(),
             KeyCode::Up => {
                 if self.selected_community > 0 {
                     self.selected_community -= 1;
@@ -346,29 +669,7 @@ impl App {
                 }
             }
             KeyCode::Char('r') => match self.state {
-                AppState::Done { .. } | AppState::Idle => {
-                    if let Some(ref graph) = self.graph {
-                        self.control.abort.store(false, Ordering::SeqCst);
-                        let (rx, worker) = spawn_leiden_worker(
-                            graph.clone(),
-                            self.params.clone(),
-                            self.control.paused.clone(),
-                            self.control.step.clone(),
-                            self.control.abort.clone(),
-                        );
-                        self.rx = Some(rx);
-                        self.worker_handle = Some(worker);
-                        self.state = AppState::Running { iteration: 0 };
-                        self.iterations = 0;
-                        self.quality = 0.0;
-                        self.events.clear();
-                    } else {
-                        self.state = AppState::Running { iteration: 0 };
-                        self.iterations = 0;
-                        self.quality = 0.0;
-                        self.events.clear();
-                    }
-                }
+                AppState::Done { .. } | AppState::Idle => self.restart_run(),
                 AppState::Error(_) => {
                     self.state = AppState::Idle;
                 }
@@ -424,9 +725,35 @@ impl App {
     }
 }
 
+/// Count the distinct community identifiers in a node-to-community
+/// partition.
+fn distinct_community_count(partition: &[(String, u32)]) -> usize {
+    partition
+        .iter()
+        .map(|&(_, community)| community)
+        .collect::<HashSet<u32>>()
+        .len()
+}
+
+/// Whether `event` marks a major phase boundary for `PhaseLevel` stepping
+/// (FR-005): graph load, entry into a new algorithm phase, iteration
+/// completion, or termination. Micro events (progress deltas, quality
+/// updates, refinement merges, aggregation details, throttling notices)
+/// are not boundaries.
+const fn is_phase_boundary(event: &LeidenEvent) -> bool {
+    matches!(
+        event,
+        LeidenEvent::GraphLoaded { .. }
+            | LeidenEvent::IterationStarted { .. }
+            | LeidenEvent::IterationFinished { .. }
+            | LeidenEvent::Terminated { .. }
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use leiden::events::Phase;
 
     #[test]
     fn app_state_transitions() {
@@ -574,5 +901,212 @@ mod tests {
         // Pressing 'y' confirms quit
         app.handle_key(KeyEvent::from(KeyCode::Char('y')));
         assert!(app.control.should_quit);
+    }
+
+    // --- T041: explanation panel wiring (FR-004, US2/AC1, US3/AC1) ---
+
+    #[test]
+    fn leiden_events_update_explanation_panel() {
+        let mut app = App::new_idle();
+
+        app.push(LeidenEvent::IterationStarted {
+            index: 0,
+            phase: Phase::LocalMoving,
+        });
+        assert_eq!(app.explanation.phase_name, "Local Moving");
+
+        app.push(LeidenEvent::IterationStarted {
+            index: 0,
+            phase: Phase::Refinement,
+        });
+        assert_eq!(app.explanation.phase_name, "Refinement");
+
+        app.push(LeidenEvent::IterationStarted {
+            index: 0,
+            phase: Phase::Aggregation,
+        });
+        assert_eq!(app.explanation.phase_name, "Aggregation");
+    }
+
+    #[test]
+    fn terminated_event_sets_completed_explanation() {
+        let mut app = App::new_idle();
+        app.partition = vec![
+            ("a".to_string(), 0),
+            ("b".to_string(), 1),
+            ("c".to_string(), 0),
+        ];
+
+        app.push(LeidenEvent::IterationFinished {
+            index: 0,
+            quality: 0.42,
+            partition: None,
+        });
+        app.push(LeidenEvent::Terminated {
+            iterations: 1,
+            reason: TerminationReason::Converged,
+            quality: 0.42,
+        });
+
+        assert_eq!(app.explanation, ExplanationState::completed(2, 0.42));
+        assert_eq!(app.explanation.community_count, 2);
+        assert_eq!(app.explanation.phase_name, "Finished");
+    }
+
+    // --- T042: granularity stepping semantics (FR-005, US2/AC2) ---
+
+    #[test]
+    fn micro_step_applies_one_event_per_press() {
+        let mut app = App::new_idle();
+        app.playback.granularity = GranularityMode::MicroStep;
+        app.pending_events.push_back(LeidenEvent::GraphLoaded {
+            nodes: 3,
+            edges: 2,
+            total_weight: 4.0,
+        });
+        app.pending_events.push_back(LeidenEvent::IterationStarted {
+            index: 0,
+            phase: Phase::LocalMoving,
+        });
+
+        app.handle_key(KeyEvent::from(KeyCode::Char('n')));
+        assert!(
+            !app.control.step.load(Ordering::SeqCst),
+            "'n' with a buffered backlog must not unblock the worker"
+        );
+
+        app.drain();
+        assert_eq!(
+            app.events.len(),
+            1,
+            "MicroStep must apply exactly one event per step"
+        );
+        assert!(
+            matches!(app.events.first(), Some(LeidenEvent::GraphLoaded { .. })),
+            "the first buffered event must be applied first"
+        );
+        assert!(
+            !app.playback.step_requested,
+            "the step request must clear once an event is applied"
+        );
+        assert_eq!(app.pending_events.len(), 1, "the backlog must be preserved");
+    }
+
+    #[test]
+    fn phase_level_step_advances_to_next_phase_boundary() {
+        let mut app = App::new_idle();
+        app.playback.granularity = GranularityMode::PhaseLevel;
+        for event in [
+            LeidenEvent::IterationStarted {
+                index: 0,
+                phase: Phase::LocalMoving,
+            },
+            LeidenEvent::LocalMovingProgress {
+                iteration: 0,
+                moved_nodes: 2,
+            },
+            LeidenEvent::IterationStarted {
+                index: 0,
+                phase: Phase::Refinement,
+            },
+            LeidenEvent::QualityComputed {
+                iteration: 0,
+                quality: 0.3,
+            },
+        ] {
+            app.pending_events.push_back(event);
+        }
+
+        app.handle_key(KeyEvent::from(KeyCode::Right));
+        app.drain();
+        assert_eq!(
+            app.events.len(),
+            1,
+            "a phase-level step lands on the next boundary event"
+        );
+        assert!(matches!(
+            app.events.last(),
+            Some(LeidenEvent::IterationStarted {
+                phase: Phase::LocalMoving,
+                ..
+            })
+        ));
+
+        app.handle_key(KeyEvent::from(KeyCode::Right));
+        app.drain();
+        assert_eq!(
+            app.events.len(),
+            3,
+            "the next phase-level step sweeps micro events up to the following boundary"
+        );
+        assert!(matches!(
+            app.events.last(),
+            Some(LeidenEvent::IterationStarted {
+                phase: Phase::Refinement,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn auto_play_applies_all_buffered_events() {
+        let mut app = App::new_idle();
+        app.playback.granularity = GranularityMode::MicroStep;
+        app.pending_events.push_back(LeidenEvent::GraphLoaded {
+            nodes: 2,
+            edges: 1,
+            total_weight: 2.0,
+        });
+        app.pending_events.push_back(LeidenEvent::Terminated {
+            iterations: 1,
+            reason: TerminationReason::Converged,
+            quality: 0.5,
+        });
+
+        app.handle_key(KeyEvent::from(KeyCode::Char(' ')));
+        assert!(app.playback.is_playing, "Space must start auto-play");
+
+        app.drain();
+        assert_eq!(
+            app.events.len(),
+            2,
+            "auto-play must flush the whole playhead backlog"
+        );
+        assert!(app.pending_events.is_empty());
+        assert!(
+            matches!(app.state, AppState::Done { .. }),
+            "Terminated must complete the app lifecycle state"
+        );
+        assert_eq!(app.explanation.phase_name, "Finished");
+    }
+
+    #[test]
+    fn restart_clears_pending_event_backlog() {
+        let mut app = App::new_idle();
+        app.pending_events
+            .push_back(LeidenEvent::Throttled { dropped: 1 });
+
+        app.handle_key(KeyEvent::from(KeyCode::Char('r')));
+        assert!(
+            app.pending_events.is_empty(),
+            "restart must drop stale buffered events"
+        );
+        assert_eq!(
+            app.explanation.phase_name, "Initial State",
+            "restart must reset the explanation narrative"
+        );
+    }
+
+    #[test]
+    fn preset_switch_clears_pending_event_backlog() {
+        let mut app = App::new_idle();
+        app.pending_events
+            .push_back(LeidenEvent::Throttled { dropped: 1 });
+
+        app.handle_key(KeyEvent::from(KeyCode::Char('2')));
+        assert!(
+            app.pending_events.is_empty(),
+            "preset switch must drop stale buffered events"
+        );
     }
 }
