@@ -113,16 +113,36 @@ fn main() -> Result<()> {
         match std::fs::read_to_string(path) {
             Ok(content) => match parse_graph_input(&content, &path_str) {
                 Ok(graph) => {
-                    let (rx, _worker) = spawn_leiden_worker(graph.clone(), app.params.clone());
+                    tracing::info!(
+                        nodes = graph.node_count(),
+                        edges = graph.edge_count(),
+                        "Loaded graph file: {}",
+                        path_str
+                    );
+                    let mut init_partition = Vec::with_capacity(graph.node_count());
+                    for i in 0..graph.node_count() {
+                        if let Ok(u) = u32::try_from(i)
+                            && let Some(id) = graph.node_id(u)
+                        {
+                            init_partition.push((id.clone(), u));
+                        }
+                    }
+                    init_partition.sort_by(|a, b| a.0.cmp(&b.0));
+                    app.partition = init_partition;
+
+                    let (rx, worker) = spawn_leiden_worker(graph.clone(), app.params.clone(), app.control.paused.clone(), app.control.step.clone(), app.control.abort.clone());
                     app.graph = Some(graph);
                     app.with_receiver(rx);
+                    app.worker_handle = Some(worker);
                     app.state = AppState::Running { iteration: 0 };
                 }
                 Err(err) => {
+                    tracing::error!("Failed to parse graph: {err}");
                     app.state = AppState::Error(err.to_string());
                 }
             },
             Err(err) => {
+                tracing::error!("Failed to read graph file: {err}");
                 app.state = AppState::Error(format!("Failed to read graph file: {err}"));
             }
         }

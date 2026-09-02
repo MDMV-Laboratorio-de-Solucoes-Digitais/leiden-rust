@@ -5,9 +5,22 @@
 pub mod result;
 
 use std::num::NonZeroU32;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 
 use crate::aggregation::aggregation;
+
+/// Control flags for pausing, stepping, or aborting the algorithm.
+#[derive(Debug, Default, Clone)]
+pub struct ControlFlags {
+    /// Flag indicating whether the orchestrator is paused.
+    pub paused: Arc<AtomicBool>,
+    /// Flag indicating whether the orchestrator should step once.
+    pub step: Arc<AtomicBool>,
+    /// Flag indicating whether the orchestrator should abort execution.
+    pub abort: Arc<AtomicBool>,
+}
 use crate::error::LeidenError;
 use crate::events::{LeidenEvent, Phase, TerminationReason, ThreadingPolicy};
 use crate::graph::{CsrGraph, NodeId};
@@ -25,6 +38,7 @@ pub struct Leiden {
     params: LeidenParameters,
     event_sink: Option<Sender<LeidenEvent>>,
     threads: Option<NonZeroU32>,
+    control_flags: Option<Arc<ControlFlags>>,
 }
 
 impl Leiden {
@@ -35,6 +49,7 @@ impl Leiden {
             params: LeidenParameters::default(),
             event_sink: None,
             threads: None,
+            control_flags: None,
         }
     }
 
@@ -56,6 +71,13 @@ impl Leiden {
     #[must_use]
     pub const fn with_threads(mut self, threads: NonZeroU32) -> Self {
         self.threads = Some(threads);
+        self
+    }
+
+    /// Attach control flags for pausing, stepping, or aborting execution.
+    #[must_use]
+    pub fn with_control_flags(mut self, flags: Arc<ControlFlags>) -> Self {
+        self.control_flags = Some(flags);
         self
     }
 
@@ -118,7 +140,7 @@ impl Leiden {
             LeidenEvent::QualityComputed { iteration, quality } => {
                 tracing::debug!(iteration = iteration, quality = quality, "quality_computed");
             }
-            LeidenEvent::IterationFinished { index, quality } => {
+            LeidenEvent::IterationFinished { index, quality, .. } => {
                 tracing::debug!(iteration = index, quality = quality, "iteration_finished");
             }
             LeidenEvent::Terminated {
@@ -229,6 +251,10 @@ impl Leiden {
         None
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "Core algorithmic loop requires flat structure for performance and borrow checker rules"
+    )]
     fn run_outer_loop<Id: NodeId>(
         &self,
         graph: &CsrGraph<Id>,
@@ -249,6 +275,25 @@ impl Leiden {
         let mut termination_reason = TerminationReason::IterationCap;
 
         for iter in 0..self.params.iteration_cap {
+            if let Some(flags) = &self.control_flags {
+                if flags.abort.load(Ordering::SeqCst) {
+                    break;
+                }
+                while flags.paused.load(Ordering::SeqCst) {
+                    if flags.abort.load(Ordering::SeqCst) {
+                        break;
+                    }
+                    if flags.step.load(Ordering::SeqCst) {
+                        flags.step.store(false, Ordering::SeqCst);
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                if flags.abort.load(Ordering::SeqCst) {
+                    break;
+                }
+            }
+
             self.emit_event(LeidenEvent::IterationStarted {
                 index: iter,
                 phase: Phase::LocalMoving,
@@ -279,6 +324,7 @@ impl Leiden {
             self.emit_event(LeidenEvent::IterationFinished {
                 index: iter,
                 quality: current_q,
+                partition: Some(g0_partition.clone()),
             });
 
             let is_better = current_q > best_quality + f64::EPSILON;
@@ -401,5 +447,50 @@ impl Leiden {
             self.params.seed,
             ThreadingPolicy::SingleThreaded,
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::{CsrGraph, Edge};
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    #[test]
+    fn test_orchestrator_control_flags() {
+        let paused = Arc::new(AtomicBool::new(true));
+        let step = Arc::new(AtomicBool::new(false));
+        let abort = Arc::new(AtomicBool::new(false));
+
+        let control_flags = Arc::new(ControlFlags {
+            paused,
+            step: step.clone(),
+            abort: abort.clone(),
+        });
+
+        let orchestrator = Leiden::new().with_control_flags(control_flags);
+
+        let edges = vec![Edge {
+            source: 1_u32,
+            target: 2_u32,
+            weight: 1.0,
+        }];
+        let Ok(graph) = CsrGraph::from_edges(edges) else {
+            return;
+        };
+
+        // We run it in a background thread to allow unpausing
+        let handle = std::thread::spawn(move || {
+            let _ = orchestrator.run(&graph);
+        });
+
+        // The orchestrator is paused, we unpause it by setting step
+        step.store(true, Ordering::SeqCst);
+
+        // We abort
+        abort.store(true, Ordering::SeqCst);
+
+        let _ = handle.join();
     }
 }

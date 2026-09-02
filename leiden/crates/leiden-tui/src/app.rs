@@ -3,11 +3,14 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread::JoinHandle;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use leiden::{CsrGraph, LeidenEvent, LeidenParameters, TerminationReason};
+use leiden::{CsrGraph, LeidenEvent, LeidenParameters, RunResult, TerminationReason};
 
 use crate::logging::LogRing;
+use crate::worker::spawn_leiden_worker;
 
 /// High-level lifecycle state of the TUI application.
 #[derive(Debug, Clone, PartialEq)]
@@ -28,6 +31,8 @@ pub enum AppState {
     },
     /// An error occurred during graph loading or execution.
     Error(String),
+    /// Prompting for quit confirmation.
+    ConfirmQuit(Box<AppState>),
 }
 
 /// Identifies which panel currently holds keyboard focus.
@@ -77,12 +82,16 @@ impl Default for PanelVisibility {
 }
 
 /// Runtime execution control flags.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct ControlState {
     /// Whether the application should terminate.
     pub should_quit: bool,
     /// Whether auto-iteration is paused.
-    pub paused: bool,
+    pub paused: Arc<AtomicBool>,
+    /// Whether the application should advance by exactly one iteration.
+    pub step: Arc<AtomicBool>,
+    /// Whether the application should abort execution.
+    pub abort: Arc<AtomicBool>,
 }
 
 /// Central state model for `leiden-tui`.
@@ -118,6 +127,8 @@ pub struct App {
     pub selected_community: usize,
     /// Optional receiver for incoming Leiden events from worker thread.
     pub rx: Option<Receiver<LeidenEvent>>,
+    /// Background worker join handle.
+    pub worker_handle: Option<JoinHandle<Result<RunResult<String>, leiden::LeidenError>>>,
 }
 
 impl App {
@@ -140,6 +151,7 @@ impl App {
             focus: FocusPanel::CommunityList,
             selected_community: 0,
             rx: None,
+            worker_handle: None,
         }
     }
 
@@ -150,16 +162,34 @@ impl App {
 
     /// Process a received `LeidenEvent`.
     pub fn push(&mut self, event: LeidenEvent) {
+        event.emit();
         match &event {
             LeidenEvent::IterationStarted { .. } => {
                 self.state = AppState::Running {
                     iteration: self.iterations + 1,
                 };
             }
-            LeidenEvent::IterationFinished { index, quality } => {
+            LeidenEvent::IterationFinished { index, quality, partition, .. } => {
                 self.iterations = *index;
                 self.quality = *quality;
                 self.state = AppState::Running { iteration: *index };
+                
+                if let Some(p) = partition {
+                    if let Some(ref graph) = self.graph {
+                        let n = graph.node_count();
+                        let mut next_partition = Vec::with_capacity(n);
+                        for i in 0..n {
+                            if let Ok(u_idx) = u32::try_from(i) {
+                                if let Some(id) = graph.node_id(u_idx) {
+                                    let comm = p.community_of(u_idx);
+                                    next_partition.push((id.clone(), comm));
+                                }
+                            }
+                        }
+                        next_partition.sort_by(|a, b| a.0.cmp(&b.0));
+                        self.partition = next_partition;
+                    }
+                }
             }
             LeidenEvent::Terminated {
                 iterations,
@@ -190,12 +220,43 @@ impl App {
                 self.push(event);
             }
         }
+
+        if let Some(handle) = self.worker_handle.take() {
+            if handle.is_finished() {
+                match handle.join() {
+                    Ok(Ok(run_result)) => {
+                        self.partition = run_result.partition;
+                        self.quality = run_result.quality;
+                        self.iterations = run_result.iterations;
+                        self.termination_reason = Some(run_result.termination_reason);
+                        self.state = AppState::Done {
+                            iterations: run_result.iterations,
+                            quality: run_result.quality,
+                        };
+                    }
+                    Ok(Err(err)) => {
+                        self.state = AppState::Error(err.to_string());
+                    }
+                    Err(_) => {
+                        self.state = AppState::Error("Worker thread panicked".to_string());
+                    }
+                }
+            } else {
+                self.worker_handle = Some(handle);
+            }
+        }
     }
 
     /// Handle a keyboard event.
     pub fn handle_key(&mut self, key: KeyEvent) {
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
+            if matches!(self.state, AppState::Running { .. }) {
+                self.state = AppState::ConfirmQuit(Box::new(self.state.clone()));
+                return;
+            }
             self.control.should_quit = true;
+            self.control.abort.store(true, Ordering::SeqCst);
+            self.control.paused.store(false, Ordering::SeqCst);
             return;
         }
 
@@ -205,9 +266,30 @@ impl App {
             return;
         }
 
+        if let AppState::ConfirmQuit(ref prev) = self.state {
+            match key.code {
+                KeyCode::Char('y') | KeyCode::Char('Y') => {
+                    self.control.should_quit = true;
+                    self.control.abort.store(true, Ordering::SeqCst);
+                    self.control.paused.store(false, Ordering::SeqCst);
+                }
+                KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                    self.state = *prev.clone();
+                }
+                _ => {}
+            }
+            return;
+        }
+
         match key.code {
             KeyCode::Char('q') => {
-                self.control.should_quit = true;
+                if matches!(self.state, AppState::Running { .. }) {
+                    self.state = AppState::ConfirmQuit(Box::new(self.state.clone()));
+                } else {
+                    self.control.should_quit = true;
+                    self.control.abort.store(true, Ordering::SeqCst);
+                    self.control.paused.store(false, Ordering::SeqCst);
+                }
             }
             KeyCode::Char('?') => {
                 self.visibility.help_open = !self.visibility.help_open;
@@ -219,7 +301,12 @@ impl App {
                 self.visibility.show_log = !self.visibility.show_log;
             }
             KeyCode::Char('p') => {
-                self.control.paused = !self.control.paused;
+                let current = self.control.paused.load(Ordering::SeqCst);
+                self.control.paused.store(!current, Ordering::SeqCst);
+            }
+            KeyCode::Char('s') => {
+                self.control.paused.store(true, Ordering::SeqCst);
+                self.control.step.store(true, Ordering::SeqCst);
             }
             KeyCode::Tab => {
                 self.focus = match self.focus {
@@ -255,15 +342,26 @@ impl App {
             }
             KeyCode::Char('r') => match self.state {
                 AppState::Done { .. } | AppState::Idle => {
-                    self.state = AppState::Running { iteration: 0 };
-                    self.iterations = 0;
-                    self.quality = 0.0;
-                    self.events.clear();
+                    if let Some(ref graph) = self.graph {
+                        self.control.abort.store(false, Ordering::SeqCst);
+                        let (rx, worker) = spawn_leiden_worker(graph.clone(), self.params.clone(), self.control.paused.clone(), self.control.step.clone(), self.control.abort.clone());
+                        self.rx = Some(rx);
+                        self.worker_handle = Some(worker);
+                        self.state = AppState::Running { iteration: 0 };
+                        self.iterations = 0;
+                        self.quality = 0.0;
+                        self.events.clear();
+                    } else {
+                        self.state = AppState::Running { iteration: 0 };
+                        self.iterations = 0;
+                        self.quality = 0.0;
+                        self.events.clear();
+                    }
                 }
                 AppState::Error(_) => {
                     self.state = AppState::Idle;
                 }
-                AppState::Running { .. } => {}
+                AppState::Running { .. } | AppState::ConfirmQuit(_) => {}
             },
             _ => {}
         }
@@ -378,5 +476,68 @@ mod tests {
             ring.entries().front().map(String::as_str),
             Some("diagnostic entry 1")
         );
+    }
+
+    #[test]
+    fn pause_and_step_key_bindings() {
+        let mut app = App::new_idle();
+        
+        // Start running
+        app.handle_key(KeyEvent::from(KeyCode::Char('r')));
+        assert_eq!(app.state, AppState::Running { iteration: 0 });
+        assert!(!app.control.paused.load(Ordering::SeqCst), "Should start unpaused");
+        assert!(!app.control.step.load(Ordering::SeqCst), "Should start with step disabled");
+
+        // 1. Pressing 's' while running continuously
+        app.handle_key(KeyEvent::from(KeyCode::Char('s')));
+        assert!(app.control.paused.load(Ordering::SeqCst), "Pressing 's' while running must switch to paused mode");
+        assert!(app.control.step.load(Ordering::SeqCst), "Pressing 's' must request a step");
+
+        // Reset step manually for testing the next transition
+        app.control.step.store(false, Ordering::SeqCst);
+
+        // 2. Unpause using 'p'
+        app.handle_key(KeyEvent::from(KeyCode::Char('p')));
+        assert!(!app.control.paused.load(Ordering::SeqCst), "Pressing 'p' while paused must unpause");
+
+        // 3. Pause using 'p'
+        app.handle_key(KeyEvent::from(KeyCode::Char('p')));
+        assert!(app.control.paused.load(Ordering::SeqCst), "Pressing 'p' while running must pause");
+
+        // 4. Pressing 's' while already paused
+        app.handle_key(KeyEvent::from(KeyCode::Char('s')));
+        assert!(app.control.paused.load(Ordering::SeqCst), "Pressing 's' while paused must keep app paused");
+        assert!(app.control.step.load(Ordering::SeqCst), "Pressing 's' while paused must request a step");
+    }
+
+    #[test]
+    fn quit_confirmation_transitions() {
+        let mut app = App::new_idle();
+        
+        // Quitting from Idle quits immediately
+        app.handle_key(KeyEvent::from(KeyCode::Char('q')));
+        assert!(app.control.should_quit);
+
+        let mut app = App::new_idle();
+        app.handle_key(KeyEvent::from(KeyCode::Char('r'))); // Now Running
+        assert!(matches!(app.state, AppState::Running { .. }));
+        
+        // Quitting from Running shows confirm prompt
+        app.handle_key(KeyEvent::from(KeyCode::Char('q')));
+        assert!(!app.control.should_quit);
+        assert!(matches!(app.state, AppState::ConfirmQuit(..)));
+
+        // Pressing 'n' cancels quit
+        app.handle_key(KeyEvent::from(KeyCode::Char('n')));
+        assert!(!app.control.should_quit);
+        assert!(matches!(app.state, AppState::Running { .. }));
+
+        // Quitting again
+        app.handle_key(KeyEvent::from(KeyCode::Char('q')));
+        assert!(matches!(app.state, AppState::ConfirmQuit(..)));
+
+        // Pressing 'y' confirms quit
+        app.handle_key(KeyEvent::from(KeyCode::Char('y')));
+        assert!(app.control.should_quit);
     }
 }
