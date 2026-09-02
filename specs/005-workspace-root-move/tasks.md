@@ -100,7 +100,7 @@
 - [X] T023 [P] [US3] Fix `design-system.md` absolute `file:///` links: update the three `file:///home/…/leiden/leiden/…` targets (Cargo.toml, leiden-tui/Cargo.toml ×2) to the post-move locations (FR-006)
 - [X] T024 [US3] Run the SC-003 stale-reference sweep exactly as operationalized in spec.md §SC-003 (`working-directory: leiden`, `leiden/leiden`, stale `../specs`/`../.specify` refs — excluding git history, gitignored dirs, archived `specs/001…004` snapshots): zero live hits required
 - [X] T025 [US3] Verify contributor setup works as written: execute the commands from the relocated `README.md` §Development & Verification and §CLI Usage from the repository root (US3-2)
-- [ ] T026 [US3] Commit the documentation sweep: `docs: repoint workspace path references to repository root`, then open PR 2 (`005-workspace-root-move-docs` → `dev`); it is a normal PR subject to the unchanged CI pipeline (Spec §Clarifications)
+- [X] T026 [US3] Commit the documentation sweep: `docs: repoint workspace path references to repository root`, then open PR 2 (`005-workspace-root-move-docs` → `dev`); it is a normal PR subject to the unchanged CI pipeline (Spec §Clarifications)
 
 **Checkpoint**: PR 2 open — zero live old-prefix references; US3 independently validated
 
