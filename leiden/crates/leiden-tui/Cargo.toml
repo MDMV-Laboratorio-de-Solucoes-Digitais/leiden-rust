@@ -24,6 +24,7 @@ crossterm = "0.29.0"
 leiden = { version = "=0.1.0", path = "../leiden" }
 leiden-cli = { version = "=0.1.0", path = "../leiden-cli" }
 ratatui = "0.30.2"
+signal-hook = "0.3.17"
 thiserror = "2.0.3"
 tracing = { version = "0.1.41", default-features = false, features = ["std", "release_max_level_warn"] }
 tracing-subscriber = { version = "0.3.20", default-features = false, features = ["fmt", "env-filter", "std"] }
