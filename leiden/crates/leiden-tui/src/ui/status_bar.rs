@@ -47,6 +47,13 @@ pub fn render_status_bar(frame: &mut Frame<'_>, app: &App, area: Rect) {
                 .fg(Color::White)
                 .add_modifier(Modifier::BOLD),
         ),
+        AppState::ConfirmQuit(_) => Span::styled(
+            " QUIT? (y/n) ",
+            Style::default()
+                .bg(Color::Red)
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        ),
     };
 
     let details_str = format!(
