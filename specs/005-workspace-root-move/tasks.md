@@ -93,13 +93,13 @@
 
 ### Implementation for User Story 3
 
-- [ ] T019 [US3] Execute the FR-009 post-merge validation checkpoint after PR 1 merges: on updated `dev`, run the full verification suite from the repository root plus quickstart.md scenarios 1 and 2 — this checkpoint MUST pass before any PR 2 work (fix-forward vs revert decision per FR-009 if it fails)
+- [X] T019 [US3] Execute the FR-009 post-merge validation checkpoint after PR 1 merges: on updated `dev`, run the full verification suite from the repository root plus quickstart.md scenarios 1 and 2 — this checkpoint MUST pass before any PR 2 work (fix-forward vs revert decision per FR-009 if it fails)
 - [ ] T020 [P] [US3] Regenerate the codebase knowledge graph at the new root location (`graphify-out/` refresh per Constitution §VIII and AGENTS.md; gitignored, local maintenance action — not a PR artifact)
-- [ ] T021 [US3] Create branch `005-workspace-root-move-docs` from updated `dev` (PR 2 requires the flattened layout to exist on its base)
-- [ ] T022 [US3] Fix `README.md` relative links to the new layout: `../specs/001-leiden-algorithm/tasks.md` → `specs/001-leiden-algorithm/tasks.md` and `../.specify/memory/constitution.md` → `.specify/memory/constitution.md` (FR-006)
-- [ ] T023 [P] [US3] Fix `design-system.md` absolute `file:///` links: update the three `file:///home/…/leiden/leiden/…` targets (Cargo.toml, leiden-tui/Cargo.toml ×2) to the post-move locations (FR-006)
-- [ ] T024 [US3] Run the SC-003 stale-reference sweep exactly as operationalized in spec.md §SC-003 (`working-directory: leiden`, `leiden/leiden`, stale `../specs`/`../.specify` refs — excluding git history, gitignored dirs, archived `specs/001…004` snapshots): zero live hits required
-- [ ] T025 [US3] Verify contributor setup works as written: execute the commands from the relocated `README.md` §Development & Verification and §CLI Usage from the repository root (US3-2)
+- [X] T021 [US3] Create branch `005-workspace-root-move-docs` from updated `dev` (PR 2 requires the flattened layout to exist on its base)
+- [X] T022 [US3] Fix `README.md` relative links to the new layout: `../specs/001-leiden-algorithm/tasks.md` → `specs/001-leiden-algorithm/tasks.md` and `../.specify/memory/constitution.md` → `.specify/memory/constitution.md` (FR-006)
+- [X] T023 [P] [US3] Fix `design-system.md` absolute `file:///` links: update the three `file:///home/…/leiden/leiden/…` targets (Cargo.toml, leiden-tui/Cargo.toml ×2) to the post-move locations (FR-006)
+- [X] T024 [US3] Run the SC-003 stale-reference sweep exactly as operationalized in spec.md §SC-003 (`working-directory: leiden`, `leiden/leiden`, stale `../specs`/`../.specify` refs — excluding git history, gitignored dirs, archived `specs/001…004` snapshots): zero live hits required
+- [X] T025 [US3] Verify contributor setup works as written: execute the commands from the relocated `README.md` §Development & Verification and §CLI Usage from the repository root (US3-2)
 - [ ] T026 [US3] Commit the documentation sweep: `docs: repoint workspace path references to repository root`, then open PR 2 (`005-workspace-root-move-docs` → `dev`); it is a normal PR subject to the unchanged CI pipeline (Spec §Clarifications)
 
 **Checkpoint**: PR 2 open — zero live old-prefix references; US3 independently validated
