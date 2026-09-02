@@ -110,8 +110,8 @@
 
 **Purpose**: Final completion evidence across both PRs
 
-- [ ] T027 Verify the FR-009 completion criterion after PR 2 merges: both PRs landed, SC-003 search returns zero live references, quickstart.md Scenario 6 passes, and the final suite profile still matches `specs/005-workspace-root-move/baseline.md`
-- [ ] T028 [P] Run quickstart.md Scenario 7 (fresh-clone equivalence): clone the merged repository and run `cargo check --workspace` + `cargo nextest run --workspace` with zero manual path fixes (SC-001 end-to-end proof)
+- [X] T027 Verify the FR-009 completion criterion after PR 2 merges: both PRs landed, SC-003 search returns zero live references, quickstart.md Scenario 6 passes, and the final suite profile still matches `specs/005-workspace-root-move/baseline.md`
+- [X] T028 [P] Run quickstart.md Scenario 7 (fresh-clone equivalence): clone the merged repository and run `cargo check --workspace` + `cargo nextest run --workspace` with zero manual path fixes (SC-001 end-to-end proof)
 
 ---
 
