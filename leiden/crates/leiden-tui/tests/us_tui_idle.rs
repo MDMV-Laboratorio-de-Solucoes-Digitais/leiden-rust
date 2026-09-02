@@ -1,4 +1,5 @@
-//! Integration tests: Idle state rendering snapshot (T096).
+//! Integration tests: Idle state rendering snapshot (T096, updated for the
+//! 004 visual-explanation layout).
 
 #![allow(
     clippy::expect_used,
@@ -13,7 +14,7 @@ use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 
 #[test]
-fn idle_renders_three_panels() {
+fn idle_renders_explanation_and_canvas() {
     let backend = TestBackend::new(120, 40);
     let mut terminal = Terminal::new(backend).expect("creates test terminal");
     let app = App::new_idle();
@@ -24,7 +25,7 @@ fn idle_renders_three_panels() {
 
     let buffer = terminal.backend().buffer();
     let debug_str = format!("{buffer:?}");
-    assert!(debug_str.contains("Communities"));
-    assert!(debug_str.contains("Logs"));
+    assert!(debug_str.contains("EXPLANATION"));
+    assert!(debug_str.contains("GRAPH VISUALIZATION"));
     assert!(debug_str.contains("IDLE"));
 }
