@@ -10,7 +10,7 @@ pub mod simulation;
 pub mod ui;
 pub mod worker;
 
-pub use app::{App, AppState, FocusPanel};
+pub use app::{App, AppState, FocusPanel, GranularityMode, PlaybackController};
 pub use error::TuiError;
 pub use event::{AppAction, map_key_event};
 pub use explanation::{ExplanationState, Phase};
