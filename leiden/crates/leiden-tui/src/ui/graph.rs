@@ -12,10 +12,6 @@
     clippy::suboptimal_flops,
     reason = "Readability preferred over mul_add for TUI"
 )]
-#![expect(
-    clippy::imprecise_flops,
-    reason = "hypot not strictly necessary here"
-)]
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
@@ -61,8 +57,13 @@ impl CommunityGrid {
             return;
         }
 
-        let cols = (num_comms as f64).sqrt().ceil() as usize;
-        let rows = ((num_comms as f64) / (cols as f64)).ceil() as usize;
+        // Near-square grid: ceil(sqrt(n)) columns, ceil(n / cols) rows.
+        // Integer math keeps the result exact without f64 -> usize casts.
+        let mut cols = 1;
+        while cols * cols < num_comms {
+            cols += 1;
+        }
+        let rows = num_comms.div_ceil(cols);
 
         let cell_w = f64::from(area.width) / (cols as f64).max(1.0);
         let cell_h = f64::from(area.height) / (rows as f64).max(1.0);
@@ -163,10 +164,11 @@ mod tests {
             return Err("Node C not found in positions".to_string());
         };
 
-        let dist_ab = ((pos_a.0 - pos_b.0).powi(2) + (pos_a.1 - pos_b.1).powi(2)).sqrt();
-        let dist_ac = ((pos_a.0 - pos_c.0).powi(2) + (pos_a.1 - pos_c.1).powi(2)).sqrt();
+        let dist = |p: &(f64, f64), q: &(f64, f64)| (p.0 - q.0).hypot(p.1 - q.1);
+        let dist_same_comm = dist(pos_a, pos_b);
+        let dist_across_comms = dist(pos_a, pos_c);
 
-        if dist_ab >= dist_ac {
+        if dist_same_comm >= dist_across_comms {
             return Err("Nodes in the same community should be closer than nodes in different communities".to_string());
         }
 
