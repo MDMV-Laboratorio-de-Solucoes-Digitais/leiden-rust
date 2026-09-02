@@ -1,11 +1,10 @@
 <!--
 Sync Impact Report
-- Version change: 1.0.1 → 1.0.2 (PATCH per amendment procedure; ratification of MSRV floor imposed by transitive dependency `ratatui = "0.30.2"` which declares `rust_version = "1.88.0"`)
-- Modified principles: none (additional-constraint clarification only)
-- Added sections: none
+- Version change: 1.0.2 → 1.1.0 (MINOR per amendment procedure: added Principle VIII and development workflow guidance for Knowledge Graph /graphify querying)
+- Modified principles: none
+- Added sections: Core Principle VIII (Knowledge Graph Context & Query-Driven Architecture)
 - Removed sections: none
 - Follow-up TODOs: none
-- Migration: PATCH bump per Additional Constraints "Language & edition"; aligns plan.md §Constraints (MSRV floor CRITICAL) and tasks.md T001/T009 with constitution. No backward-incompatible change; clarifies that the floor was already implicitly mandated by the plan and tasks.
 -->
 
 # Leiden Algorithm Constitution
@@ -176,6 +175,25 @@ structured logs to diagnose convergence, not a wall of `println!` noise.
 **Rationale:** A library that can be silently downgraded or duplicated is not a
 library. Pinning, dedup, and atomic history keep the project auditable.
 
+### VIII. Knowledge Graph Context & Query-Driven Architecture
+
+Maintainers and AI coding agents MUST leverage knowledge graph queries (via `/graphify`
+or `graphify query <topic>`) for structural discovery, community mapping, and dependency
+analysis before modifying or creating specifications, architectural designs, and implementations.
+
+- Knowledge graph queries MUST be used to inspect symbol relationships, module cohesion,
+  and cross-crate dependencies prior to proposing major refactors or new components.
+- During Spec Kit workflows (`/speckit-specify`, `/speckit-plan`, `/speckit-tasks`, `/speckit-implement`),
+  contextual queries against the graph MUST guide architectural decisions to avoid duplication,
+  respect component boundaries, and preserve domain invariants.
+- The codebase knowledge graph (e.g. `graphify-out/graph.json` and `graphify-out/GRAPH_REPORT.md`)
+  MUST be refreshed when significant structural or cross-crate API boundaries are modified.
+
+**Rationale:** Leiden is a multi-crate workspace spanning core algorithms, CLI, and TUI
+components. Querying the knowledge graph via `/graphify` provides deterministic structural
+context, eliminates blind spot assumptions, and guarantees high-fidelity, cohesive results across
+the development lifecycle.
+
 ## Additional Constraints
 
 - **Language & edition:** Rust stable, edition 2024. `rust-toolchain.toml` pins
@@ -205,6 +223,11 @@ library. Pinning, dedup, and atomic history keep the project auditable.
 - **Spec Kit flow.** Every non-trivial change starts with `$speckit-specify`,
   proceeds to `$speckit-plan`, `$speckit-tasks`, and `$speckit-implement`. PRs
   that skip the spec are rejected.
+- **Knowledge Graph exploration & querying.** Maintainers and autonomous agents MUST utilize
+  `/graphify` queries (e.g., `graphify query <topic>` or slash commands) to inspect the project
+  knowledge graph, community structure, callflows, and architectural cross-references before and
+  during specification, planning, refactoring, and code review to ensure high contextual
+  awareness, traceability, and improved results.
 - **TDD gate.** No implementation commit lands without its corresponding failing-
   test commit immediately preceding it (or co-located in the same atomic commit).
 - **CI pipeline.** CI MUST run, at minimum: `cargo fmt --check`,
@@ -253,7 +276,12 @@ library. Pinning, dedup, and atomic history keep the project auditable.
   unless they materially change a principle, in which case this constitution is
   amended in the same PR.
 
-**Version**: 1.0.2 | **Ratified**: 2026-08-30 | **Last Amended**: 2026-08-31
+**Version**: 1.1.0 | **Ratified**: 2026-08-30 | **Last Amended**: 2026-09-01
+
+**Amendment 2026-09-01 (MINOR 1.0.2 → 1.1.0)**: Added Principle VIII (Knowledge Graph
+Context & Query-Driven Architecture) and updated Development Workflow to mandate
+the use of `/graphify` queries for Knowledge Graph exploration, ensuring enhanced
+architectural context, consistency, and improved results across the Spec Kit workflow.
 
 **Amendment 2026-08-31 (PATCH 1.0.1 → 1.0.2)**: Ratified MSRV floor of 1.88.0
 in Additional Constraints "Language & edition", aligning the constitution
