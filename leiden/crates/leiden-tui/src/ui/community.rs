@@ -67,3 +67,59 @@ pub fn render_community_panel(frame: &mut Frame<'_>, app: &App, area: Rect) {
 
     frame.render_widget(table, area);
 }
+
+/// Render the final community membership breakdown table (T033, US3).
+///
+/// Displays one row per detected community with its color block, size,
+/// internal edge weight, and total degree. Intended as the completion
+/// summary overlay shown when the algorithm finishes (SC-001).
+pub fn render_community_summary_table(frame: &mut Frame<'_>, app: &App, area: Rect) {
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_style(Style::default().fg(crate::ui::colors::ACCENT_SUCCESS))
+        .title(" COMMUNITY SUMMARY ");
+
+    let header = Row::new(vec![
+        Cell::from("ID"),
+        Cell::from("Size"),
+        Cell::from("Int. Weight"),
+        Cell::from("Total Degree"),
+    ])
+    .style(
+        Style::default()
+            .add_modifier(Modifier::BOLD)
+            .fg(crate::ui::colors::FG_1),
+    );
+
+    let summaries = app.community_summaries();
+    let rows: Vec<Row<'_>> = summaries
+        .iter()
+        .map(|summary| {
+            let color = community_color(summary.id);
+            Row::new(vec![
+                Cell::from(format!("{}", summary.id)).style(Style::default().fg(color)),
+                Cell::from(format!("{}", summary.size))
+                    .style(Style::default().fg(crate::ui::colors::FG_1)),
+                Cell::from(format!("{:.1}", summary.internal_weight))
+                    .style(Style::default().fg(crate::ui::colors::FG_1)),
+                Cell::from(format!("{:.1}", summary.total_degree))
+                    .style(Style::default().fg(crate::ui::colors::FG_1)),
+            ])
+        })
+        .collect();
+
+    let widths = [
+        Constraint::Length(6),
+        Constraint::Length(8),
+        Constraint::Length(14),
+        Constraint::Length(14),
+    ];
+
+    let table = Table::new(rows, widths)
+        .header(header)
+        .block(block)
+        .column_spacing(2);
+
+    frame.render_widget(table, area);
+}
