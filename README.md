@@ -20,7 +20,7 @@ This implementation follows the published Leiden algorithm:
 
 Every algorithm seam (graph representation, local moving, refinement,
 aggregation, orchestration) cites the corresponding paper section inline;
-see [`tasks.md`](../specs/001-leiden-algorithm/tasks.md) (Phase 3, T043–T046)
+see [`tasks.md`](specs/001-leiden-algorithm/tasks.md) (Phase 3, T043–T046)
 and the FR-009 / T138a audit for the citation discipline.
 
 ## Scope
@@ -29,7 +29,7 @@ v1 implements a deterministic variant of Leiden (no stochastic refinement),
 operating on graphs of ≤ ~100 000 nodes / ≤ ~1 000 000 edges in-memory on a
 single CPU thread. Both the algorithm and the strict lint profile are
 governed by the project constitution at
-[`.specify/memory/constitution.md`](../.specify/memory/constitution.md).
+[`.specify/memory/constitution.md`](.specify/memory/constitution.md).
 
 ## Library Usage
 
