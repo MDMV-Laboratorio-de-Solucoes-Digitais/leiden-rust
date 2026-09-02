@@ -76,3 +76,8 @@ Task: "Write unit tests for CommunityGrid spatial coordinate calculation in leid
 2. Complete Phase 4 [US2] to replace the text output with the spatial `ratatui` canvas.
 3. Validate continuous layout updates.
 4. Complete Phase 5 (Polish) to ensure graceful shutdown on quit while paused.
+
+## Phase 6: Convergence
+- [X] T017 CRITICAL Fix clippy violations (`too_many_lines`, `assertions_on_constants`, `redundant_clone`) in `leiden/crates/leiden/src/events.rs` and `leiden/crates/leiden/src/orchestrator/mod.rs` per Constitution II (contradicts)
+- [X] T018 CRITICAL Write failing tests for quit confirmation state transitions in `leiden/crates/leiden-tui/src/app.rs` per Constitution V (missing)
+- [X] T019 Implement confirmation prompt when quitting during algorithm run/pause in `leiden/crates/leiden-tui/src/app.rs` per Edge Cases (missing)
