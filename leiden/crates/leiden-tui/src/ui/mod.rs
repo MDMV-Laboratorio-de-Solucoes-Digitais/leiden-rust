@@ -2,7 +2,9 @@
 
 pub mod colors;
 pub mod community;
+pub mod explanation_panel;
 pub mod graph;
+pub mod graph_canvas;
 pub mod log_pane;
 pub mod status_bar;
 pub mod styles;
