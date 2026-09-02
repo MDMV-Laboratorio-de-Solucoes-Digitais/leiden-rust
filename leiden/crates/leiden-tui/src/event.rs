@@ -13,6 +13,18 @@ pub enum AppAction {
     Step,
     /// Pause or resume automatic execution.
     PauseResume,
+    /// Toggle auto-play stepping (Space, Contract §2.1).
+    PlayPause,
+    /// Advance exactly one step forward, auto-pausing (n / Right Arrow).
+    StepForward,
+    /// Toggle `PhaseLevel` / `MicroStep` stepping granularity (t).
+    ToggleGranularity,
+    /// Load the Karate Club preset (key `1`).
+    LoadPresetKarateClub,
+    /// Load the Two Cliques preset (key `2`).
+    LoadPresetTwoCliques,
+    /// Load the Random Mess preset (key `3`).
+    LoadPresetRandomMess,
     /// Toggle visibility of the graph view panel.
     ToggleGraph,
     /// Toggle visibility of the log pane.
@@ -41,6 +53,12 @@ pub fn map_key_event(key: KeyEvent) -> AppAction {
         KeyCode::Char('r') => AppAction::Restart,
         KeyCode::Char('s') => AppAction::Step,
         KeyCode::Char('p') => AppAction::PauseResume,
+        KeyCode::Char(' ') => AppAction::PlayPause,
+        KeyCode::Char('n') | KeyCode::Right => AppAction::StepForward,
+        KeyCode::Char('t') => AppAction::ToggleGranularity,
+        KeyCode::Char('1') => AppAction::LoadPresetKarateClub,
+        KeyCode::Char('2') => AppAction::LoadPresetTwoCliques,
+        KeyCode::Char('3') => AppAction::LoadPresetRandomMess,
         KeyCode::Char('g') => AppAction::ToggleGraph,
         KeyCode::Char('l') => AppAction::ToggleLog,
         KeyCode::Tab => AppAction::FocusNext,
