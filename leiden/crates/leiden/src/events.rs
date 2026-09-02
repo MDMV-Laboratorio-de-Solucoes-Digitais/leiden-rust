@@ -105,6 +105,8 @@ pub enum LeidenEvent {
         index: u32,
         /// Total modularity `Q` at iteration end.
         quality: f64,
+        /// Optional snapshot of the partition.
+        partition: Option<crate::partition::Partition>,
     },
     /// Algorithm terminated.
     Terminated {
@@ -161,7 +163,7 @@ impl LeidenEvent {
             Self::QualityComputed { iteration, quality } => {
                 tracing::info!(iteration = %iteration, quality = %quality, "QualityComputed");
             }
-            Self::IterationFinished { index, quality } => {
+            Self::IterationFinished { index, quality, .. } => {
                 tracing::info!(index = %index, quality = %quality, "IterationFinished");
             }
             Self::Terminated {
@@ -223,6 +225,7 @@ mod tests {
             LeidenEvent::IterationFinished {
                 index: 1,
                 quality: 0.42,
+                partition: None,
             },
             LeidenEvent::Terminated {
                 iterations: 2,
@@ -380,6 +383,7 @@ mod tests {
             &LeidenEvent::IterationFinished {
                 index: 1,
                 quality: 0.5,
+                partition: None,
             },
             &["index=", "quality="],
         );
@@ -392,5 +396,20 @@ mod tests {
             &["iterations=", "reason=", "quality="],
         );
         assert_tracing_contains(&LeidenEvent::Throttled { dropped: 10 }, &["dropped="]);
+    }
+
+    #[test]
+    fn iteration_finished_carries_partition() {
+        let event = LeidenEvent::IterationFinished {
+            index: 1,
+            quality: 0.5,
+            partition: None::<crate::partition::Partition>,
+        };
+        match event {
+            LeidenEvent::IterationFinished { partition, .. } => {
+                assert!(partition.is_none());
+            }
+            _ => assert!(false, "wrong event"),
+        }
     }
 }
