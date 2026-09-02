@@ -12,18 +12,15 @@
     clippy::suboptimal_flops,
     reason = "Readability preferred over mul_add for TUI"
 )]
-#![expect(
-    clippy::imprecise_flops,
-    reason = "hypot not strictly necessary here"
-)]
+#![expect(clippy::imprecise_flops, reason = "hypot not strictly necessary here")]
 use ratatui::Frame;
 use ratatui::layout::Rect;
+use ratatui::style::Color;
 use ratatui::style::Style;
 use ratatui::widgets::Block;
 use ratatui::widgets::Borders;
 use ratatui::widgets::Paragraph;
 use ratatui::widgets::canvas::Canvas;
-use ratatui::style::Color;
 
 use crate::app::{App, FocusPanel};
 use crate::ui::colors::{BORDER_COLOR, FOCUS_COLOR, community_color};
@@ -129,7 +126,11 @@ pub fn render_graph_panel(frame: &mut Frame<'_>, app: &App, area: Rect) {
             for (node, comm) in &app.partition {
                 if let Some(&(x, y)) = grid.node_positions.get(node) {
                     let color = community_color(*comm);
-                    ctx.print(x, y, ratatui::text::Span::styled(node.clone(), Style::default().fg(color)));
+                    ctx.print(
+                        x,
+                        y,
+                        ratatui::text::Span::styled(node.clone(), Style::default().fg(color)),
+                    );
                 }
             }
         });
@@ -167,7 +168,10 @@ mod tests {
         let dist_ac = ((pos_a.0 - pos_c.0).powi(2) + (pos_a.1 - pos_c.1).powi(2)).sqrt();
 
         if dist_ab >= dist_ac {
-            return Err("Nodes in the same community should be closer than nodes in different communities".to_string());
+            return Err(
+                "Nodes in the same community should be closer than nodes in different communities"
+                    .to_string(),
+            );
         }
 
         if grid.community_centers.is_empty() {
@@ -177,5 +181,3 @@ mod tests {
         Ok(())
     }
 }
-
-
