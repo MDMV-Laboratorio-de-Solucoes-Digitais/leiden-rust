@@ -22,7 +22,7 @@ fn workspace_root() -> PathBuf {
 #[test]
 fn leidenevent_variant_count_matches_observability_checklist() {
     let checklist_path =
-        workspace_root().join("../specs/001-leiden-algorithm/checklists/observability.md");
+        workspace_root().join("specs/001-leiden-algorithm/checklists/observability.md");
 
     assert!(
         checklist_path.exists(),
