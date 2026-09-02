@@ -1,9 +1,9 @@
 //! Application state and transition logic for `leiden-tui`.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -169,11 +169,16 @@ impl App {
                     iteration: self.iterations + 1,
                 };
             }
-            LeidenEvent::IterationFinished { index, quality, partition, .. } => {
+            LeidenEvent::IterationFinished {
+                index,
+                quality,
+                partition,
+                ..
+            } => {
                 self.iterations = *index;
                 self.quality = *quality;
                 self.state = AppState::Running { iteration: *index };
-                
+
                 if let Some(p) = partition {
                     if let Some(ref graph) = self.graph {
                         let n = graph.node_count();
@@ -344,7 +349,13 @@ impl App {
                 AppState::Done { .. } | AppState::Idle => {
                     if let Some(ref graph) = self.graph {
                         self.control.abort.store(false, Ordering::SeqCst);
-                        let (rx, worker) = spawn_leiden_worker(graph.clone(), self.params.clone(), self.control.paused.clone(), self.control.step.clone(), self.control.abort.clone());
+                        let (rx, worker) = spawn_leiden_worker(
+                            graph.clone(),
+                            self.params.clone(),
+                            self.control.paused.clone(),
+                            self.control.step.clone(),
+                            self.control.abort.clone(),
+                        );
                         self.rx = Some(rx);
                         self.worker_handle = Some(worker);
                         self.state = AppState::Running { iteration: 0 };
@@ -481,39 +492,63 @@ mod tests {
     #[test]
     fn pause_and_step_key_bindings() {
         let mut app = App::new_idle();
-        
+
         // Start running
         app.handle_key(KeyEvent::from(KeyCode::Char('r')));
         assert_eq!(app.state, AppState::Running { iteration: 0 });
-        assert!(!app.control.paused.load(Ordering::SeqCst), "Should start unpaused");
-        assert!(!app.control.step.load(Ordering::SeqCst), "Should start with step disabled");
+        assert!(
+            !app.control.paused.load(Ordering::SeqCst),
+            "Should start unpaused"
+        );
+        assert!(
+            !app.control.step.load(Ordering::SeqCst),
+            "Should start with step disabled"
+        );
 
         // 1. Pressing 's' while running continuously
         app.handle_key(KeyEvent::from(KeyCode::Char('s')));
-        assert!(app.control.paused.load(Ordering::SeqCst), "Pressing 's' while running must switch to paused mode");
-        assert!(app.control.step.load(Ordering::SeqCst), "Pressing 's' must request a step");
+        assert!(
+            app.control.paused.load(Ordering::SeqCst),
+            "Pressing 's' while running must switch to paused mode"
+        );
+        assert!(
+            app.control.step.load(Ordering::SeqCst),
+            "Pressing 's' must request a step"
+        );
 
         // Reset step manually for testing the next transition
         app.control.step.store(false, Ordering::SeqCst);
 
         // 2. Unpause using 'p'
         app.handle_key(KeyEvent::from(KeyCode::Char('p')));
-        assert!(!app.control.paused.load(Ordering::SeqCst), "Pressing 'p' while paused must unpause");
+        assert!(
+            !app.control.paused.load(Ordering::SeqCst),
+            "Pressing 'p' while paused must unpause"
+        );
 
         // 3. Pause using 'p'
         app.handle_key(KeyEvent::from(KeyCode::Char('p')));
-        assert!(app.control.paused.load(Ordering::SeqCst), "Pressing 'p' while running must pause");
+        assert!(
+            app.control.paused.load(Ordering::SeqCst),
+            "Pressing 'p' while running must pause"
+        );
 
         // 4. Pressing 's' while already paused
         app.handle_key(KeyEvent::from(KeyCode::Char('s')));
-        assert!(app.control.paused.load(Ordering::SeqCst), "Pressing 's' while paused must keep app paused");
-        assert!(app.control.step.load(Ordering::SeqCst), "Pressing 's' while paused must request a step");
+        assert!(
+            app.control.paused.load(Ordering::SeqCst),
+            "Pressing 's' while paused must keep app paused"
+        );
+        assert!(
+            app.control.step.load(Ordering::SeqCst),
+            "Pressing 's' while paused must request a step"
+        );
     }
 
     #[test]
     fn quit_confirmation_transitions() {
         let mut app = App::new_idle();
-        
+
         // Quitting from Idle quits immediately
         app.handle_key(KeyEvent::from(KeyCode::Char('q')));
         assert!(app.control.should_quit);
@@ -521,7 +556,7 @@ mod tests {
         let mut app = App::new_idle();
         app.handle_key(KeyEvent::from(KeyCode::Char('r'))); // Now Running
         assert!(matches!(app.state, AppState::Running { .. }));
-        
+
         // Quitting from Running shows confirm prompt
         app.handle_key(KeyEvent::from(KeyCode::Char('q')));
         assert!(!app.control.should_quit);

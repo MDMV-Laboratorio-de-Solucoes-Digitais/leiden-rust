@@ -399,18 +399,21 @@ mod tests {
     }
 
     #[test]
-    #[expect(clippy::panic, reason = "Test requires explicit failure on wrong event variant")]
     fn iteration_finished_carries_partition() {
         let event = LeidenEvent::IterationFinished {
             index: 1,
             quality: 0.5,
             partition: None::<crate::partition::Partition>,
         };
-        match event {
-            LeidenEvent::IterationFinished { partition, .. } => {
-                assert!(partition.is_none());
-            }
-            _ => panic!("wrong event"),
-        }
+        assert!(
+            matches!(
+                event,
+                LeidenEvent::IterationFinished {
+                    partition: None,
+                    ..
+                }
+            ),
+            "wrong event"
+        );
     }
 }
