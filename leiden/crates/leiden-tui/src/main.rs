@@ -113,9 +113,10 @@ fn main() -> Result<()> {
         match std::fs::read_to_string(path) {
             Ok(content) => match parse_graph_input(&content, &path_str) {
                 Ok(graph) => {
-                    let (rx, _worker) = spawn_leiden_worker(graph.clone(), app.params.clone());
+                    let (rx, worker) = spawn_leiden_worker(graph.clone(), app.params.clone());
                     app.graph = Some(graph);
                     app.with_receiver(rx);
+                    app.worker = Some(worker);
                     app.state = AppState::Running { iteration: 0 };
                 }
                 Err(err) => {

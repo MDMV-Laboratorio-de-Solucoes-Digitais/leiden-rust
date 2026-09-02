@@ -193,7 +193,7 @@ fn run_cli() -> Result<(), (CliError, String)> {
 
     while let Ok(event) = rx.try_recv() {
         match event {
-            LeidenEvent::IterationFinished { index, quality } => {
+            LeidenEvent::IterationFinished { index, quality, .. } => {
                 tracing::info!("iteration {}: quality={:.4}", index + 1, quality);
             }
             LeidenEvent::Terminated {

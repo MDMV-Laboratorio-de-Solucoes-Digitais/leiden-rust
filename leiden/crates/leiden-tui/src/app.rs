@@ -5,7 +5,7 @@ use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use leiden::{CsrGraph, LeidenEvent, LeidenParameters, TerminationReason};
+use leiden::{CsrGraph, LeidenEvent, LeidenParameters, RunResult, TerminationReason};
 
 use crate::logging::LogRing;
 
@@ -118,6 +118,8 @@ pub struct App {
     pub selected_community: usize,
     /// Optional receiver for incoming Leiden events from worker thread.
     pub rx: Option<Receiver<LeidenEvent>>,
+    /// Handle to the background worker thread executing Leiden.
+    pub worker: Option<std::thread::JoinHandle<Result<RunResult<String>, leiden::LeidenError>>>,
 }
 
 impl App {
@@ -137,6 +139,7 @@ impl App {
             termination_reason: None,
             visibility: PanelVisibility::default(),
             control: ControlState::default(),
+            worker: None,
             focus: FocusPanel::CommunityList,
             selected_community: 0,
             rx: None,
@@ -181,6 +184,7 @@ impl App {
 
     /// Drain all pending events from the worker receiver channel.
     pub fn drain(&mut self) {
+        // First, drain any pending events from the worker receiver.
         if let Some(ref rx) = self.rx {
             let mut pending = Vec::new();
             while let Ok(event) = rx.try_recv() {
@@ -188,6 +192,29 @@ impl App {
             }
             for event in pending {
                 self.push(event);
+            }
+        }
+
+        // After processing events, check if the worker thread has finished.
+        if let Some(handle) = self.worker.as_ref() {
+            if handle.is_finished() {
+                // Take ownership of the handle to join it.
+                if let Some(handle) = self.worker.take() {
+                    match handle.join() {
+                        Ok(Ok(run_result)) => {
+                            // Update partition with final community assignments.
+                            self.partition = run_result.partition;
+                        }
+                        Ok(Err(e)) => {
+                            tracing::error!("Leiden worker returned error: {e:?}");
+                            self.state = AppState::Error(format!("Leiden error: {e:?}"));
+                        }
+                        Err(panic) => {
+                            tracing::error!("Leiden worker panicked: {panic:?}");
+                            self.state = AppState::Error("Leiden worker panicked".to_string());
+                        }
+                    }
+                }
             }
         }
     }
