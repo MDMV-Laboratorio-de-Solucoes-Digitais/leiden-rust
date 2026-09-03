@@ -17,8 +17,8 @@ env:
   RUSTFLAGS: "-D warnings"
 
 jobs:
-  build-release:
-    name: Build ${{ matrix.target }}
+  build:
+    name: Build (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
@@ -49,7 +49,7 @@ jobs:
             target: x86_64-pc-windows-msvc
             use_cross: false
             archive_ext: zip
-            bin_ext: ".exe"
+            bin_ext: .exe
 
     steps:
       - uses: actions/checkout@v4
@@ -57,105 +57,89 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
+          toolchain: "1.88.0"
           targets: ${{ matrix.target }}
 
       - name: Setup rust-cache
         uses: Swatinem/rust-cache@v2
-        with:
-          save-if: false
 
       - name: Install cross
         if: matrix.use_cross
         uses: taiki-e/install-action@cross
 
-      - name: Build release binary (leiden-cli)
+      - name: Build release binary (cross)
+        if: matrix.use_cross
         run: |
-          if [[ "${{ matrix.use_cross }}" == "true" ]]; then
-            cross build --release --target ${{ matrix.target }} -p leiden-cli
-          else
-            cargo build --release --target ${{ matrix.target }} -p leiden-cli
-          fi
-        shell: bash
+          cross build -p leiden-cli -p leiden-tui --release --target ${{ matrix.target }}
 
-      - name: Build release binary (leiden-tui)
+      - name: Build release binary (native)
+        if: ${{ !matrix.use_cross }}
         run: |
-          if [[ "${{ matrix.use_cross }}" == "true" ]]; then
-            cross build --release --target ${{ matrix.target }} -p leiden-tui
-          else
-            cargo build --release --target ${{ matrix.target }} -p leiden-tui
-          fi
-        shell: bash
+          cargo build -p leiden-cli -p leiden-tui --release --target ${{ matrix.target }}
 
       - name: Strip debug symbols (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          strip target/${{ matrix.target }}/release/leiden-cli
+          strip target/${{ matrix.target }}/release/leiden-tui
+
+      - name: Package archive (Unix tar.gz)
         if: matrix.archive_ext == 'tar.gz'
         run: |
-          strip "target/${{ matrix.target }}/release/leiden-cli${{ matrix.bin_ext }}"
-          strip "target/${{ matrix.target }}/release/leiden-tui${{ matrix.bin_ext }}"
-        shell: bash
-
-      - name: Package artifacts (Unix)
-        if: matrix.archive_ext == 'tar.gz'
-        run: |
-          TAG_NAME=${GITHUB_REF#refs/tags/}
-          PKG_NAME="leiden-${TAG_NAME}-${{ matrix.target }}"
-          DIST_DIR="dist/${PKG_NAME}"
-          mkdir -p "$DIST_DIR"
-
-          cp "target/${{ matrix.target }}/release/leiden-cli${{ matrix.bin_ext }}" "$DIST_DIR/"
-          cp "target/${{ matrix.target }}/release/leiden-tui${{ matrix.bin_ext }}" "$DIST_DIR/"
-          cp README.md "$DIST_DIR/" 2>/dev/null || true
-          cp LICENSE "$DIST_DIR/" 2>/dev/null || true
-
+          TAG=${GITHUB_REF#refs/tags/}
+          PKG_NAME="leiden-${TAG}-${{ matrix.target }}"
+          mkdir -p "dist/${PKG_NAME}"
+          cp target/${{ matrix.target }}/release/leiden-cli "dist/${PKG_NAME}/"
+          cp target/${{ matrix.target }}/release/leiden-tui "dist/${PKG_NAME}/"
+          cp README.md "dist/${PKG_NAME}/" 2>/dev/null || true
+          cp LICENSE "dist/${PKG_NAME}/" 2>/dev/null || true
           cd dist
           tar -czf "${PKG_NAME}.tar.gz" "${PKG_NAME}"
           cd ..
-
-          sha256sum "dist/${PKG_NAME}.tar.gz" | awk '{print $1}' > "dist/${PKG_NAME}.tar.gz.sha256"
-
-          echo "PACKAGE_NAME=${PKG_NAME}" >> "$GITHUB_ENV"
+          echo "PKG_NAME=${PKG_NAME}" >> "$GITHUB_ENV"
           echo "ARCHIVE_PATH=dist/${PKG_NAME}.tar.gz" >> "$GITHUB_ENV"
-          echo "CHECKSUM_PATH=dist/${PKG_NAME}.tar.gz.sha256" >> "$GITHUB_ENV"
-        shell: bash
 
-      - name: Package artifacts (Windows)
+      - name: Package archive (Windows zip)
         if: matrix.archive_ext == 'zip'
-        run: |
-          $tagName = $env:GITHUB_REF -replace 'refs/tags/', ''
-          $pkgName = "leiden-$tagName-${{ matrix.target }}"
-          $distDir = "dist/$pkgName"
-          New-Item -ItemType Directory -Force -Path $distDir
-
-          Copy-Item "target/${{ matrix.target }}/release/leiden-cli.exe" "$distDir/"
-          Copy-Item "target/${{ matrix.target }}/release/leiden-tui.exe" "$distDir/"
-          Copy-Item "README.md" "$distDir/" -ErrorAction SilentlyContinue
-          Copy-Item "LICENSE" "$distDir/" -ErrorAction SilentlyContinue
-
-          Set-Location dist
-          Compress-Archive -Path $pkgName -DestinationPath "$pkgName.zip" -Force
-          Set-Location ..
-
-          $hash = Get-FileHash "dist/$pkgName.zip" -Algorithm SHA256
-          $hash.Hash.ToLower() | Out-File "dist/$pkgName.zip.sha256" -NoNewline
-
-          echo "PACKAGE_NAME=$pkgName" >> $env:GITHUB_ENV
-          echo "ARCHIVE_PATH=dist/$pkgName.zip" >> $env:GITHUB_ENV
-          echo "CHECKSUM_PATH=dist/$pkgName.zip.sha256" >> $env:GITHUB_ENV
         shell: pwsh
+        run: |
+          $tag = $env:GITHUB_REF -replace 'refs/tags/', ''
+          $pkgName = "leiden-${tag}-${{ matrix.target }}"
+          New-Item -ItemType Directory -Force -Path "dist/$pkgName"
+          Copy-Item "target/${{ matrix.target }}/release/leiden-cli.exe" "dist/$pkgName/"
+          Copy-Item "target/${{ matrix.target }}/release/leiden-tui.exe" "dist/$pkgName/"
+          if (Test-Path "README.md") { Copy-Item "README.md" "dist/$pkgName/" }
+          if (Test-Path "LICENSE") { Copy-Item "LICENSE" "dist/$pkgName/" }
+          Set-Location dist
+          Compress-Archive -Path $pkgName -DestinationPath "${pkgName}.zip" -Force
+          Set-Location ..
+          echo "PKG_NAME=$pkgName" >> $env:GITHUB_ENV
+          echo "ARCHIVE_PATH=dist/${pkgName}.zip" >> $env:GITHUB_ENV
+
+      - name: Generate SHA-256 checksum
+        shell: bash
+        run: |
+          cd dist
+          if [[ "${{ runner.os }}" == "Linux" || "${{ runner.os }}" == "macOS" ]]; then
+            sha256sum "${PKG_NAME}.${{ matrix.archive_ext }}" > "${PKG_NAME}.${{ matrix.archive_ext }}.sha256"
+          else
+            certutil -hashfile "${PKG_NAME}.${{ matrix.archive_ext }}" SHA256 | findstr /v "hash" > "${PKG_NAME}.${{ matrix.archive_ext }}.sha256"
+          fi
+          cd ..
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.PACKAGE_NAME }}
+          name: ${{ env.PKG_NAME }}
           path: |
             ${{ env.ARCHIVE_PATH }}
-            ${{ env.CHECKSUM_PATH }}
+            ${{ env.ARCHIVE_PATH }}.sha256
 
-  publish-release:
-    name: Publish GitHub Release
+  publish:
+    name: Publish Release
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    needs: build-release
+    needs: [build]
     steps:
       - uses: actions/checkout@v4
 
@@ -165,27 +149,19 @@ jobs:
           path: release-assets
           pattern: leiden-v*
 
-      - name: Prepare release assets
+      - name: Aggregate SHA-256 checksums
         run: |
-          mkdir -p final-assets
-
-          find release-assets -name "*.tar.gz" -exec cp {} final-assets/ \;
-          find release-assets -name "*.zip" -exec cp {} final-assets/ \;
-
-          > final-assets/SHA256SUMS.txt
-          for checksum_file in release-assets/*/*.sha256; do
-            if [[ -f "$checksum_file" ]]; then
-              archive_file=$(basename "$checksum_file" .sha256)
-              hash=$(cat "$checksum_file")
-              echo "$hash  $archive_file" >> final-assets/SHA256SUMS.txt
-            fi
-          done
-
-          cp final-assets/SHA256SUMS.txt .
+          find release-assets -name "*.sha256" -exec cat {} \; > release-assets/SHA256SUMS.txt
+          cat release-assets/SHA256SUMS.txt
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: final-assets/*
+          files: |
+            release-assets/**/*.tar.gz
+            release-assets/**/*.zip
+            release-assets/SHA256SUMS.txt
           generate_release_notes: true
           fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
