@@ -1,1 +1,3 @@
-{"feature_directory": "specs/005-workspace-root-move"}
+{
+  "feature_directory": "specs/008-lefthook-precommit-hooks"
+}

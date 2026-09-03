@@ -1,0 +1,78 @@
+# Lefthook Configuration
+# https://lefthook.dev/configuration/
+#
+# Hook execution order:
+#   pre-commit -> prepare-commit-msg -> commit-msg -> post-commit
+#   pre-push
+#   post-merge, post-checkout (cache warming)
+#
+# Known bypass vectors:
+#   - `--no-verify`: bypasses pre-commit and commit-msg, but NOT prepare-commit-msg
+#   - `LEFTHOOK=0`: bypasses ALL lefthook hooks (CI/CD is the ultimate gate)
+#
+# Performance target: pre-commit checks complete in <5s
+# Benchmark: up to 10 files / 500 lines changed (typical: 1 file per commit)
+
+pre-commit:
+  parallel: true
+  commands:
+    fmt:
+      glob: "*.rs"
+      run: cargo fmt || true
+      stage_fixed: true
+    clippy:
+      glob: "*.rs"
+      run: cargo clippy --workspace --all-targets -- -D warnings
+    check:
+      glob: "*.rs"
+      run: cargo check --workspace
+
+    # Uncomment to enable additional pre-commit checks.
+    # Note: some checks like deny/audit already run in pre-push.
+    # These are pre-commit-only opt-in suggestions:
+    # audit:
+    #   glob: "*.rs"
+    #   run: cargo audit
+    # deny:
+    #   glob: "*.rs"
+    #   run: cargo deny check
+
+prepare-commit-msg:
+  commands:
+    # NOTE: Uses `cargo fmt --all` (workspace-wide) rather than staged-files-only.
+    # This is intentional — prepare-commit-msg is a non-bypassable backstop for
+    # --no-verify scenarios (FR-003), so it formats the entire workspace as a
+    # safety net. The pre-commit hook (FR-001) formats only staged files.
+    fmt-backstop:
+      # NOTE: stage_fixed:true only works for pre-commit in lefthook.
+      # prepare-commit-msg must explicitly re-stage via `git add -u`.
+      run: cargo fmt --all && git add -u
+
+commit-msg:
+  commands:
+    conventional:
+      run: cog verify --file {1}
+
+pre-push:
+  parallel: true
+  commands:
+    test:
+      run: cargo nextest run
+    deny:
+      run: cargo deny check
+    audit:
+      run: cargo audit
+    doc:
+      run: cargo doc --workspace --no-deps
+    coverage:
+      run: cargo llvm-cov
+
+post-merge:
+  commands:
+    cache-warm:
+      run: nohup cargo build > /dev/null 2>&1 &
+
+post-checkout:
+  commands:
+    cache-warm:
+      run: nohup cargo build > /dev/null 2>&1 &
