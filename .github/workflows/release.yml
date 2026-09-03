@@ -1,0 +1,191 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  build-release:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            use_cross: true
+            archive_ext: tar.gz
+            bin_ext: ""
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            use_cross: true
+            archive_ext: tar.gz
+            bin_ext: ""
+          - os: macos-14
+            target: aarch64-apple-darwin
+            use_cross: false
+            archive_ext: tar.gz
+            bin_ext: ""
+          - os: macos-13
+            target: x86_64-apple-darwin
+            use_cross: false
+            archive_ext: tar.gz
+            bin_ext: ""
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            use_cross: false
+            archive_ext: zip
+            bin_ext: ".exe"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+
+      - name: Setup rust-cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: false
+
+      - name: Install cross
+        if: matrix.use_cross
+        uses: taiki-e/install-action@cross
+
+      - name: Build release binary (leiden-cli)
+        run: |
+          if [[ "${{ matrix.use_cross }}" == "true" ]]; then
+            cross build --release --target ${{ matrix.target }} -p leiden-cli
+          else
+            cargo build --release --target ${{ matrix.target }} -p leiden-cli
+          fi
+        shell: bash
+
+      - name: Build release binary (leiden-tui)
+        run: |
+          if [[ "${{ matrix.use_cross }}" == "true" ]]; then
+            cross build --release --target ${{ matrix.target }} -p leiden-tui
+          else
+            cargo build --release --target ${{ matrix.target }} -p leiden-tui
+          fi
+        shell: bash
+
+      - name: Strip debug symbols (Unix)
+        if: matrix.archive_ext == 'tar.gz'
+        run: |
+          strip "target/${{ matrix.target }}/release/leiden-cli${{ matrix.bin_ext }}"
+          strip "target/${{ matrix.target }}/release/leiden-tui${{ matrix.bin_ext }}"
+        shell: bash
+
+      - name: Package artifacts (Unix)
+        if: matrix.archive_ext == 'tar.gz'
+        run: |
+          TAG_NAME=${GITHUB_REF#refs/tags/}
+          PKG_NAME="leiden-${TAG_NAME}-${{ matrix.target }}"
+          DIST_DIR="dist/${PKG_NAME}"
+          mkdir -p "$DIST_DIR"
+
+          cp "target/${{ matrix.target }}/release/leiden-cli${{ matrix.bin_ext }}" "$DIST_DIR/"
+          cp "target/${{ matrix.target }}/release/leiden-tui${{ matrix.bin_ext }}" "$DIST_DIR/"
+          cp README.md "$DIST_DIR/" 2>/dev/null || true
+          cp LICENSE "$DIST_DIR/" 2>/dev/null || true
+
+          cd dist
+          tar -czf "${PKG_NAME}.tar.gz" "${PKG_NAME}"
+          cd ..
+
+          sha256sum "dist/${PKG_NAME}.tar.gz" | awk '{print $1}' > "dist/${PKG_NAME}.tar.gz.sha256"
+
+          echo "PACKAGE_NAME=${PKG_NAME}" >> "$GITHUB_ENV"
+          echo "ARCHIVE_PATH=dist/${PKG_NAME}.tar.gz" >> "$GITHUB_ENV"
+          echo "CHECKSUM_PATH=dist/${PKG_NAME}.tar.gz.sha256" >> "$GITHUB_ENV"
+        shell: bash
+
+      - name: Package artifacts (Windows)
+        if: matrix.archive_ext == 'zip'
+        run: |
+          $tagName = $env:GITHUB_REF -replace 'refs/tags/', ''
+          $pkgName = "leiden-$tagName-${{ matrix.target }}"
+          $distDir = "dist/$pkgName"
+          New-Item -ItemType Directory -Force -Path $distDir
+
+          Copy-Item "target/${{ matrix.target }}/release/leiden-cli.exe" "$distDir/"
+          Copy-Item "target/${{ matrix.target }}/release/leiden-tui.exe" "$distDir/"
+          Copy-Item "README.md" "$distDir/" -ErrorAction SilentlyContinue
+          Copy-Item "LICENSE" "$distDir/" -ErrorAction SilentlyContinue
+
+          Set-Location dist
+          Compress-Archive -Path $pkgName -DestinationPath "$pkgName.zip" -Force
+          Set-Location ..
+
+          $hash = Get-FileHash "dist/$pkgName.zip" -Algorithm SHA256
+          $hash.Hash.ToLower() | Out-File "dist/$pkgName.zip.sha256" -NoNewline
+
+          echo "PACKAGE_NAME=$pkgName" >> $env:GITHUB_ENV
+          echo "ARCHIVE_PATH=dist/$pkgName.zip" >> $env:GITHUB_ENV
+          echo "CHECKSUM_PATH=dist/$pkgName.zip.sha256" >> $env:GITHUB_ENV
+        shell: pwsh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PACKAGE_NAME }}
+          path: |
+            ${{ env.ARCHIVE_PATH }}
+            ${{ env.CHECKSUM_PATH }}
+
+  publish-release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: build-release
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          pattern: leiden-v*
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p final-assets
+
+          find release-assets -name "*.tar.gz" -exec cp {} final-assets/ \;
+          find release-assets -name "*.zip" -exec cp {} final-assets/ \;
+
+          > final-assets/SHA256SUMS.txt
+          for checksum_file in release-assets/*/*.sha256; do
+            if [[ -f "$checksum_file" ]]; then
+              archive_file=$(basename "$checksum_file" .sha256)
+              hash=$(cat "$checksum_file")
+              echo "$hash  $archive_file" >> final-assets/SHA256SUMS.txt
+            fi
+          done
+
+          cp final-assets/SHA256SUMS.txt .
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: final-assets/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true
