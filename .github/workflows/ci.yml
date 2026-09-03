@@ -2,47 +2,238 @@ name: CI
 
 on:
   push:
-    branches: [ "main", "dev" ]
+    branches: ["main", "dev"]
   pull_request:
-    branches: [ "main", "dev" ]
+    branches: ["main", "dev"]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-D warnings"
+  TERM: xterm-256color
 
 jobs:
-  check-and-test:
-    name: Code Rigor & Test Suite
+  detect-changes:
+    name: Detect Changed Crates
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      core: ${{ steps.filter.outputs.leiden }}
+      cli: ${{ steps.filter.outputs.leiden-cli }}
+      tui: ${{ steps.filter.outputs.leiden-tui }}
+      meta: ${{ steps.filter.outputs.workspace-config }}
+      any_code: ${{ steps.filter.outputs.any-code }}
+      doc_scope: ${{ steps.scope.outputs.doc-scope }}
+      crate: ${{ steps.scope.outputs.crate }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Filter changed paths
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            leiden:
+              - 'crates/leiden/**'
+              - 'fixtures/**'
+            leiden-cli:
+              - 'crates/leiden-cli/**'
+            leiden-tui:
+              - 'crates/leiden-tui/**'
+            workspace-config:
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'deny.toml'
+              - 'clippy.toml'
+              - 'rust-toolchain.toml'
+            any-code:
+              - 'crates/**'
+              - 'fixtures/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+
+      - name: Compute doc scope
+        id: scope
+        run: |
+          COUNT=0
+          CRATES=""
+          [[ "${{ steps.filter.outputs.leiden }}" == "true" ]] && { COUNT=$((COUNT+1)); CRATES="$CRATES leiden"; }
+          [[ "${{ steps.filter.outputs.leiden-cli }}" == "true" ]] && { COUNT=$((COUNT+1)); CRATES="$CRATES leiden-cli"; }
+          [[ "${{ steps.filter.outputs.leiden-tui }}" == "true" ]] && { COUNT=$((COUNT+1)); CRATES="$CRATES leiden-tui"; }
+
+          if [[ "${{ steps.filter.outputs.workspace-config }}" == "true" ]]; then
+            echo "doc-scope=workspace" >> "$GITHUB_OUTPUT"
+          elif [[ "$COUNT" -ge 2 ]]; then
+            echo "doc-scope=workspace" >> "$GITHUB_OUTPUT"
+          elif [[ "$COUNT" -eq 1 ]]; then
+            echo "doc-scope=crate" >> "$GITHUB_OUTPUT"
+            echo "crate=$(echo $CRATES | xargs)" >> "$GITHUB_OUTPUT"
+          else
+            echo "doc-scope=skip" >> "$GITHUB_OUTPUT"
+          fi
+
+  lint-and-audit:
+    name: Lint & Security Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [detect-changes]
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: "1.85.0"
+          toolchain: "1.88.0"
           components: rustfmt, clippy
 
-      - name: Install cargo-nextest
-        uses: taiki-e/install-action@nextest
-
-      - name: Rustfmt Check
-        run: cargo fmt --check
-
-      - name: Clippy Workspace Check
-        run: cargo clippy --workspace --all-targets -- -D warnings
-
-      - name: Unit & Integration Tests (Debug)
-        run: cargo nextest run --workspace
-
-      - name: Release Tests (Performance SC-001 & Determinism)
-        run: cargo nextest run --workspace --release
-
-      - name: Documentation Build
-        run: cargo doc --workspace --no-deps
+      - name: Setup rust-cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ runner.os }}-lint
 
       - name: Install cargo-deny
         uses: taiki-e/install-action@cargo-deny
 
+      - name: Rustfmt Check
+        run: cargo fmt --all -- --check
+
+      - name: Clippy Workspace Check
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
       - name: Cargo Deny Check
         run: cargo deny --config deny.toml check
+
+  test-core:
+    name: Test Core (leiden)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [detect-changes, lint-and-audit]
+    if: needs.detect-changes.outputs.core == 'true' || needs.detect-changes.outputs.meta == 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.88.0"
+          components: rustfmt, clippy
+
+      - name: Setup rust-cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
+
+      - name: Cache proptest regressions
+        uses: actions/cache@v4
+        with:
+          path: |
+            target/proptest-regressions/
+            crates/leiden/target/proptest-regressions/
+          key: proptest-regressions-${{ runner.os }}-${{ hashFiles('crates/leiden/tests/*.rs') }}
+          restore-keys: |
+            proptest-regressions-${{ runner.os }}-
+
+      - name: Unit & Integration Tests (Debug)
+        run: cargo nextest run -p leiden --all-features
+
+      - name: Release Tests (Performance)
+        run: cargo nextest run -p leiden --all-features --release
+
+  test-cli:
+    name: Test CLI (leiden-cli)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [detect-changes, lint-and-audit]
+    if: needs.detect-changes.outputs.cli == 'true' || needs.detect-changes.outputs.core == 'true' || needs.detect-changes.outputs.meta == 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.88.0"
+          components: rustfmt, clippy
+
+      - name: Setup rust-cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
+
+      - name: Unit & Integration Tests (Debug)
+        run: cargo nextest run -p leiden-cli --all-features
+
+      - name: Release Tests (Performance)
+        run: cargo nextest run -p leiden-cli --all-features --release
+
+  test-tui:
+    name: Test TUI (leiden-tui)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [detect-changes, lint-and-audit]
+    if: needs.detect-changes.outputs.tui == 'true' || needs.detect-changes.outputs.core == 'true' || needs.detect-changes.outputs.meta == 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.88.0"
+          components: rustfmt, clippy
+
+      - name: Setup rust-cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
+
+      - name: Unit & Integration Tests (Debug)
+        run: cargo nextest run -p leiden-tui --all-features
+
+      - name: Release Tests (Performance)
+        run: cargo nextest run -p leiden-tui --all-features --release
+
+      - name: TUI Geometry Guard Test (below-minimum 79x23)
+        run: cargo nextest run -p leiden-tui --all-features -E 'test(geometry_guard)'
+
+      - name: TUI PTY Integration Test
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update && sudo apt-get install -y expect
+          cargo nextest run -p leiden-tui --all-features -E 'test(pty)'
+
+  docs:
+    name: Documentation Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [detect-changes, lint-and-audit]
+    if: needs.detect-changes.outputs.doc_scope != 'skip'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.88.0"
+          components: rustfmt, clippy
+
+      - name: Setup rust-cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build workspace docs
+        if: needs.detect-changes.outputs.doc_scope == 'workspace'
+        run: cargo doc --workspace --no-deps
+
+      - name: Build crate docs
+        if: needs.detect-changes.outputs.doc_scope == 'crate'
+        run: cargo doc -p ${{ needs.detect-changes.outputs.crate }} --no-deps
