@@ -2,9 +2,13 @@ name: CI
 
 on:
   push:
-    branches: [ "main", "dev" ]
+    branches: ["main", "dev"]
   pull_request:
-    branches: [ "main", "dev" ]
+    branches: ["main", "dev"]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -26,12 +30,12 @@ jobs:
       tui: ${{ steps.filter.outputs.leiden-tui }}
       meta: ${{ steps.filter.outputs.workspace-config }}
       any_code: ${{ steps.filter.outputs.any-code }}
-      doc-scope: ${{ steps.scope.outputs.doc-scope }}
+      doc_scope: ${{ steps.scope.outputs.doc-scope }}
       crate: ${{ steps.scope.outputs.crate }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Path Filter
+      - name: Filter changed paths
         id: filter
         uses: dorny/paths-filter@v3
         with:
@@ -52,8 +56,10 @@ jobs:
             any-code:
               - 'crates/**'
               - 'fixtures/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
 
-      - name: Compute Doc Scope
+      - name: Compute doc scope
         id: scope
         run: |
           COUNT=0
@@ -77,19 +83,23 @@ jobs:
     name: Lint & Security Audit
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    needs: [detect-changes]
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
+          toolchain: "1.88.0"
           components: rustfmt, clippy
 
       - name: Setup rust-cache
         uses: Swatinem/rust-cache@v2
         with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          key: ${{ runner.os }}-lint
+
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@cargo-deny
 
       - name: Rustfmt Check
         run: cargo fmt --all -- --check
@@ -97,55 +107,11 @@ jobs:
       - name: Clippy Workspace Check
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
-      - name: Install cargo-deny
-        uses: taiki-e/install-action@cargo-deny
-
       - name: Cargo Deny Check
         run: cargo deny --config deny.toml check
 
-  check-and-test:
-    name: Code Rigor & Test Suite
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    needs: [detect-changes, lint-and-audit]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
-          components: rustfmt, clippy
-
-      - name: Setup rust-cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-
-      - name: Install cargo-nextest
-        uses: taiki-e/install-action@nextest
-
-      - name: Cache proptest regressions
-        uses: actions/cache@v4
-        with:
-          path: |
-            target/proptest-regressions/
-            crates/*/target/proptest-regressions/
-          key: proptest-regressions-${{ runner.os }}-${{ hashFiles('crates/leiden/tests/*.rs') }}
-          restore-keys: |
-            proptest-regressions-${{ runner.os }}-
-
-      - name: Unit & Integration Tests (Debug)
-        run: cargo nextest run --workspace --all-features --no-fail-fast
-
-      - name: Release Tests (Performance SC-001 & Determinism)
-        run: cargo nextest run --workspace --all-features --release --no-fail-fast
-
-      - name: Bench Compile Check
-        run: cargo check --benches
-
   test-core:
-    name: Test Core Crate
+    name: Test Core (leiden)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: [detect-changes, lint-and-audit]
@@ -156,7 +122,8 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
+          toolchain: "1.88.0"
+          components: rustfmt, clippy
 
       - name: Setup rust-cache
         uses: Swatinem/rust-cache@v2
@@ -176,11 +143,14 @@ jobs:
           restore-keys: |
             proptest-regressions-${{ runner.os }}-
 
-      - name: Run core tests
-        run: cargo nextest run -p leiden --all-features --no-fail-fast
+      - name: Unit & Integration Tests (Debug)
+        run: cargo nextest run -p leiden --all-features
+
+      - name: Release Tests (Performance)
+        run: cargo nextest run -p leiden --all-features --release
 
   test-cli:
-    name: Test CLI Crate
+    name: Test CLI (leiden-cli)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: [detect-changes, lint-and-audit]
@@ -191,7 +161,8 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
+          toolchain: "1.88.0"
+          components: rustfmt, clippy
 
       - name: Setup rust-cache
         uses: Swatinem/rust-cache@v2
@@ -201,11 +172,14 @@ jobs:
       - name: Install cargo-nextest
         uses: taiki-e/install-action@nextest
 
-      - name: Run CLI tests
-        run: cargo nextest run -p leiden-cli --all-features --no-fail-fast
+      - name: Unit & Integration Tests (Debug)
+        run: cargo nextest run -p leiden-cli --all-features
+
+      - name: Release Tests (Performance)
+        run: cargo nextest run -p leiden-cli --all-features --release
 
   test-tui:
-    name: Test TUI Crate
+    name: Test TUI (leiden-tui)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: [detect-changes, lint-and-audit]
@@ -216,7 +190,8 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
+          toolchain: "1.88.0"
+          components: rustfmt, clippy
 
       - name: Setup rust-cache
         uses: Swatinem/rust-cache@v2
@@ -226,32 +201,43 @@ jobs:
       - name: Install cargo-nextest
         uses: taiki-e/install-action@nextest
 
-      - name: Run TUI tests
-        run: cargo nextest run -p leiden-tui --all-features --no-fail-fast
+      - name: Unit & Integration Tests (Debug)
+        run: cargo nextest run -p leiden-tui --all-features
+
+      - name: Release Tests (Performance)
+        run: cargo nextest run -p leiden-tui --all-features --release
+
+      - name: TUI Geometry Guard Test (below-minimum 79x23)
+        run: cargo nextest run -p leiden-tui --all-features -E 'test(geometry_guard)'
+
+      - name: TUI PTY Integration Test
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update && sudo apt-get install -y expect
+          cargo nextest run -p leiden-tui --all-features -E 'test(pty)'
 
   docs:
     name: Documentation Build
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    needs: [detect-changes, check-and-test]
-    if: needs.detect-changes.outputs.doc-scope != 'skip'
+    needs: [detect-changes, lint-and-audit]
+    if: needs.detect-changes.outputs.doc_scope != 'skip'
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
+          toolchain: "1.88.0"
+          components: rustfmt, clippy
 
       - name: Setup rust-cache
         uses: Swatinem/rust-cache@v2
-        with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
 
-      - name: Build Workspace Docs
-        if: needs.detect-changes.outputs.doc-scope == 'workspace'
+      - name: Build workspace docs
+        if: needs.detect-changes.outputs.doc_scope == 'workspace'
         run: cargo doc --workspace --no-deps
 
-      - name: Build Crate Docs
-        if: needs.detect-changes.outputs.doc-scope == 'crate'
+      - name: Build crate docs
+        if: needs.detect-changes.outputs.doc_scope == 'crate'
         run: cargo doc -p ${{ needs.detect-changes.outputs.crate }} --no-deps
