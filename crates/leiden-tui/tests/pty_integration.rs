@@ -39,7 +39,11 @@ fn pty_tui_starts_without_error() {
     };
 
     let _ = child.kill();
-    assert!(!output.contains("error:"), "TUI produced error output: {output}");
+    let _ = child.wait();
+    assert!(
+        !output.contains("error:"),
+        "TUI produced error output: {output}"
+    );
 }
 
 #[test]
