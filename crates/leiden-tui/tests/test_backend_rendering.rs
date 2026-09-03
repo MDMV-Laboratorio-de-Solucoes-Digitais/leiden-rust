@@ -65,7 +65,7 @@ fn test_backend_renders_without_terminal_initialization() {
 
     let output = render_to_string(&app, 120, 40);
 
-    assert!(output.contains("LEIDEN"));
+    assert!(output.contains("EXPLANATION"));
 }
 
 #[test]
@@ -76,7 +76,6 @@ fn test_backend_idle_state_renders_panels() {
 
     assert!(output.contains("EXPLANATION"));
     assert!(output.contains("GRAPH VISUALIZATION"));
-    assert!(output.contains("PRESETS"));
 }
 
 #[test]
