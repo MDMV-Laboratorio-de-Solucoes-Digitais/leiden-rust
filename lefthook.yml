@@ -57,7 +57,9 @@ pre-push:
   parallel: true
   commands:
     test:
-      run: cargo nextest run
+      run: |
+          cargo nextest run
+          cargo test --doc
     deny:
       run: cargo deny check
     audit:
@@ -65,7 +67,7 @@ pre-push:
     doc:
       run: cargo doc --workspace --no-deps
     coverage:
-      run: cargo llvm-cov
+      run: cargo llvm-cov nextest
 
 post-merge:
   commands:
