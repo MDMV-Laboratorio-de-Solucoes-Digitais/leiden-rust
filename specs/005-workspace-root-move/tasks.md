@@ -189,6 +189,14 @@ Strictly sequential T001 → T028 is the intended path: the two-PR structure and
 
 ---
 
+## Phase 7: Convergence
+
+**Purpose**: Remaining work identified by `$speckit-converge` after initial implementation
+
+- [X] T029 Fix clippy `zombie_processes` lint in `crates/leiden-tui/tests/pty_integration.rs:30` — spawned process must be `wait()`ed on or explicitly discarded per `clippy::all = deny` (Constitution II) and FR-004/SC-004 (partial)
+
+---
+
 ## Notes
 
 - [P] tasks = different files or independent inspections, no dependencies
