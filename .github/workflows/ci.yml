@@ -204,7 +204,7 @@ jobs:
         run: cargo nextest run -p leiden-tui --all-features --release
 
       - name: TUI Geometry Guard Test (below-minimum 79x23)
-        run: cargo nextest run -p leiden-tui --all-features -E 'test(geometry_guard)'
+        run: cargo nextest run -p leiden-tui --all-features -E 'test(terminal_dimension_guard)'
 
       - name: TUI PTY Integration Test
         if: runner.os == 'Linux'
