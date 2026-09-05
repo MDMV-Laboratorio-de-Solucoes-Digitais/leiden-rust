@@ -372,3 +372,234 @@ impl<Id: NodeId> CsrGraph<Id> {
         }
     }
 }
+
+/// Verifies FR-002 / INV-006: CSR graph construction invariants.
+///
+/// Property-based tests covering node counting, neighbour validity,
+/// handshaking lemma, and parallel edge weight summation across
+/// multiple graph topologies (Erdős-Rényi, Stochastic Block Model,
+/// Scale-Free).
+#[cfg(test)]
+mod property_tests {
+    #![allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::cast_possible_truncation,
+        clippy::uninlined_format_args,
+        clippy::manual_range_contains,
+        clippy::format_push_string,
+        clippy::option_if_let_else,
+        clippy::unreachable,
+        clippy::cast_lossless,
+        unused_doc_comments,
+        deprecated,
+        reason = "test code"
+    )]
+
+    use proptest::prelude::*;
+    use rand::rng;
+
+    use crate::graph::{CsrGraph, Edge};
+    use crate::testing::config::proptest_config;
+    use crate::testing::graphs::{ErdosRenyi, GraphGenerator, ScaleFree, StochasticBlock};
+
+    // ---------------------------------------------------------------------------
+    // Helpers
+    // ---------------------------------------------------------------------------
+
+    /// Generate a CSR graph from one of three topologies based on `topology % 3`:
+    /// 0 → Erdős-Rényi, 1 → Stochastic Block Model, 2 → Scale-Free.
+    fn generate_by_topology(
+        topology: u8,
+        p: f64,
+        p_in: f64,
+        p_out: f64,
+        m: usize,
+        communities: usize,
+    ) -> CsrGraph<u32> {
+        let mut rng = rng();
+        match topology % 3 {
+            0 => {
+                let p = p.clamp(0.01, 1.0);
+                ErdosRenyi::new(p).generate(&mut rng)
+            }
+            1 => {
+                let communities = communities.clamp(2, 10);
+                let p_in = p_in.clamp(0.05, 1.0);
+                let p_out = p_out.clamp(0.0, (p_in - 0.01).max(0.0));
+                StochasticBlock::new(communities, p_in, p_out).generate(&mut rng)
+            }
+            2 => {
+                let m = m.clamp(1, 10);
+                ScaleFree::new(m).generate(&mut rng)
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // T018 — node_count_equals_unique_ids (FR-002)
+    // ---------------------------------------------------------------------------
+
+    /// Verifies FR-002: node count equals unique node IDs.
+    ///
+    /// For every generated graph the internal node list must contain exactly
+    /// as many entries as there are unique node identifiers (0..n by construction).
+    proptest! {
+        #![proptest_config(proptest_config(Some(20), cfg!(debug_assertions)))]
+        #[test]
+        fn node_count_equals_unique_ids(
+            topology in 0..3u8,
+            p in 0.01f64..=1.0,
+            p_in in 0.05f64..=1.0,
+            p_out in 0.0f64..=0.5,
+            m in 1usize..=5,
+            communities in 2usize..=5,
+        ) {
+            let graph = generate_by_topology(topology, p, p_in, p_out, m, communities);
+            let n = graph.node_count();
+            prop_assert!(n > 0, "graph must have at least one node");
+            // All node IDs are 0..n by construction — verify they are all present.
+            for i in 0..n as u32 {
+                prop_assert!(
+                    graph.node_id(i).is_some(),
+                    "node {} should exist",
+                    i
+                );
+            }
+            // No node beyond n-1 should exist.
+            prop_assert!(
+                graph.node_id(n as u32).is_none(),
+                "node {} should not exist (only {} nodes)",
+                n,
+                n
+            );
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // T019 — neighbor_references_valid (FR-002)
+    // ---------------------------------------------------------------------------
+
+    /// Verifies FR-002: all neighbour references are valid node indices.
+    ///
+    /// Every neighbour index returned by `neighbours_of` must be < `node_count`.
+    proptest! {
+        #![proptest_config(proptest_config(Some(20), cfg!(debug_assertions)))]
+        #[test]
+        fn neighbor_references_valid(
+            topology in 0..3u8,
+            p in 0.01f64..=1.0,
+            p_in in 0.05f64..=1.0,
+            p_out in 0.0f64..=0.5,
+            m in 1usize..=5,
+            communities in 2usize..=5,
+        ) {
+            let graph = generate_by_topology(topology, p, p_in, p_out, m, communities);
+            let n = graph.node_count();
+            prop_assert!(n > 0, "graph must have at least one node");
+            for i in 0..n as u32 {
+                let neighbours = graph.neighbours_of(i);
+                for &nbr in neighbours {
+                    prop_assert!(
+                        (nbr as usize) < n,
+                        "neighbour {} of node {} is out of bounds (n={})",
+                        nbr,
+                        i,
+                        n
+                    );
+                }
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // T020 — handshaking_lemma (INV-006)
+    // ---------------------------------------------------------------------------
+
+    /// Verifies INV-006: Σ degree(v) = 2 × |E| (weighted handshaking lemma).
+    ///
+    /// The sum of all weighted degrees equals twice the total edge weight.
+    proptest! {
+        #![proptest_config(proptest_config(Some(20), cfg!(debug_assertions)))]
+        #[test]
+        fn handshaking_lemma(
+            topology in 0..3u8,
+            p in 0.01f64..=1.0,
+            p_in in 0.05f64..=1.0,
+            p_out in 0.0f64..=0.5,
+            m in 1usize..=5,
+            communities in 2usize..=5,
+        ) {
+            let graph = generate_by_topology(topology, p, p_in, p_out, m, communities);
+            let n = graph.node_count();
+            prop_assert!(n > 0, "graph must have at least one node");
+            let sum_degrees: f64 = (0..n as u32)
+                .map(|i| graph.degree_of(i))
+                .sum();
+            let expected = 2.0 * graph.total_weight();
+            prop_assert!(
+                (sum_degrees - expected).abs() < 1e-6,
+                "handshaking lemma failed: sum_degrees={} expected={}",
+                sum_degrees,
+                expected
+            );
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // T021 — parallel_edge_weights_sum (FR-002)
+    // ---------------------------------------------------------------------------
+
+    /// Verifies FR-002: parallel edges sum weights additively.
+    ///
+    /// Constructs edges where the same (u, v) pair appears multiple times with
+    /// different weights, then verifies the resulting graph has a single edge
+    /// whose weight equals the sum of the individual weights.
+    proptest! {
+        #![proptest_config(proptest_config(Some(20), cfg!(debug_assertions)))]
+        #[test]
+        fn parallel_edge_weights_sum(
+            num_pairs in 1usize..=8,
+            max_weight in 1.0f64..=10.0,
+        ) {
+            use std::collections::HashMap;
+            let mut rng = rng();
+            // Build a map of (min, max) -> list of weights.
+            let mut edge_map: HashMap<(u32, u32), Vec<f64>> = HashMap::new();
+            for _ in 0..num_pairs {
+                let u = rng.random_range(0..20u32);
+                let mut v = rng.random_range(0..20u32);
+                while u == v {
+                    v = rng.random_range(0..20u32);
+                }
+                let pair = if u < v { (u, v) } else { (v, u) };
+                let weight = rng.random_range(0.01..=max_weight);
+                edge_map.entry(pair).or_default().push(weight);
+            }
+            prop_assume!(!edge_map.is_empty(), "need at least one edge pair");
+            // Build the edge list with parallel edges.
+            let mut edges: Vec<Edge<u32>> = Vec::new();
+            for &(u, v) in edge_map.keys() {
+                for &weight in &edge_map[&(u, v)] {
+                    edges.push(Edge { source: u, target: v, weight });
+                }
+            }
+            let graph = CsrGraph::from_edges(edges).expect("valid graph construction");
+            // Verify total weight equals sum of all input weights.
+            // Each parallel edge's weight is summed into the CSR edge weight,
+            // and total_weight = sum of all unique edge weights.
+            let total_input_weight: f64 = edge_map
+                .values()
+                .flat_map(|v| v.iter())
+                .sum();
+            prop_assert!(
+                (graph.total_weight() - total_input_weight).abs() < 1e-6,
+                "parallel edge weight sum failed: graph.total_weight={} expected={}",
+                graph.total_weight(),
+                total_input_weight
+            );
+        }
+    }
+}

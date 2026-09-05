@@ -35,6 +35,21 @@ pub use params::LeidenParameters;
 pub use partition::Partition;
 pub use quality::{Modularity, MoveComponents, QualityFunction};
 
+/// Test-only utilities for property-based testing.
+///
+/// This module is `#[cfg(test)]` — zero production code impact.
+/// Contains graph generators, proptest configuration, and assertion helpers.
+#[cfg(test)]
+#[expect(clippy::items_after_test_module, reason = "test code")]
+pub(crate) mod testing {
+    /// Proptest configuration constants and helpers.
+    pub(crate) mod config;
+    /// Graph generation strategies for property-based tests.
+    pub(crate) mod graphs;
+    /// Shared assertion helpers for property-based tests.
+    pub(crate) mod invariants;
+}
+
 /// This doctest demonstrates an **uncited** public item. It is annotated
 /// `compile_fail` because the body below violates `missing_docs` and
 /// references an undeclared identifier; the FR-009 guard then fails the

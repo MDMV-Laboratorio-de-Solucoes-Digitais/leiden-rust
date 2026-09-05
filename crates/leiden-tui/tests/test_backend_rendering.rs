@@ -12,8 +12,8 @@
 use leiden_tui::app::App;
 use leiden_tui::presets::PresetId;
 use leiden_tui::ui;
-use ratatui::backend::TestBackend;
 use ratatui::Terminal;
+use ratatui::backend::TestBackend;
 
 fn render_to_string(app: &App, width: u16, height: u16) -> String {
     let backend = TestBackend::new(width, height);

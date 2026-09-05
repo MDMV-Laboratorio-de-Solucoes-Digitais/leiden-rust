@@ -49,13 +49,7 @@ fn pty_with_dimensions_allocates_correctly() {
 #[test]
 fn pty_can_run_binary_with_raw_mode() {
     let mut child = Command::new("script")
-        .args([
-            "-q",
-            "/dev/null",
-            "test",
-            "-e",
-            "target/debug/leiden-tui",
-        ])
+        .args(["-q", "/dev/null", "test", "-e", "target/debug/leiden-tui"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -208,9 +202,7 @@ fn pty_input_events_delivered() {
 
     let test_input = b"test_input\n";
     if let Some(mut stdin) = child.stdin.take() {
-        stdin
-            .write_all(test_input)
-            .expect("writes to PTY stdin");
+        stdin.write_all(test_input).expect("writes to PTY stdin");
     }
 
     let mut stdout = Vec::new();

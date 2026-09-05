@@ -282,3 +282,182 @@ mod tests {
         assert!(!non_child.is_refinement_of(&parent));
     }
 }
+
+#[cfg(test)]
+mod property_tests {
+    #![allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::cast_possible_truncation,
+        clippy::uninlined_format_args,
+        clippy::manual_range_contains,
+        clippy::format_push_string,
+        clippy::option_if_let_else,
+        clippy::unreachable,
+        clippy::cast_lossless,
+        unused_imports,
+        dead_code,
+        unused_doc_comments,
+        deprecated,
+        reason = "test code"
+    )]
+
+    use proptest::prelude::*;
+    use rand::Rng;
+
+    use super::Partition;
+    use crate::quality::Modularity;
+    use crate::refinement::refinement;
+    use crate::testing::config::{MODULARITY_EPSILON, proptest_config};
+    use crate::testing::graphs::{
+        ErdosRenyi, GraphGenerator, ScaleFree, StochasticBlock, TestGraph, TopologyKind,
+    };
+    use crate::testing::invariants::{assert_finite, assert_modularity_valid};
+
+    /// Strategy selecting one of three distinct topologies (FR-006).
+    fn topology_strategy() -> impl Strategy<Value = TopologyKind> {
+        prop_oneof![
+            Just(TopologyKind::ErdosRenyi),
+            Just(TopologyKind::StochasticBlock),
+            Just(TopologyKind::ScaleFree),
+        ]
+    }
+
+    /// Generate a CSR graph using the selected topology.
+    fn generate_graph(topology: TopologyKind, rng: &mut impl Rng) -> TestGraph {
+        match topology {
+            TopologyKind::ErdosRenyi => ErdosRenyi::new(0.3).generate(rng),
+            TopologyKind::StochasticBlock => StochasticBlock::new(3, 0.3, 0.05).generate(rng),
+            TopologyKind::ScaleFree => ScaleFree::new(2).generate(rng),
+            _ => unreachable!(),
+        }
+    }
+
+    /// Build a random partition by merging singletons into a random number of communities.
+    fn random_partition(graph: &TestGraph, rng: &mut impl Rng) -> Partition {
+        let n = graph.node_count();
+        let mut partition = Partition::singletons(n);
+        if n > 0 {
+            let k = rng.random_range(1..=n);
+            for u in 0..n as u32 {
+                let target = rng.random_range(0..k as u32);
+                partition.move_node(u, target);
+            }
+            partition.renumber();
+        }
+        partition
+    }
+
+    /// True if two partitions have identical community structure (same node groups
+    /// regardless of community ID numbering).
+    fn partitions_equivalent(a: &Partition, b: &Partition) -> bool {
+        if a.community_count() != b.community_count() {
+            return false;
+        }
+        // Collect communities as sorted node-id vectors for order-independent comparison.
+        let mut a_comms: Vec<Vec<u32>> = (0..a.community_count())
+            .map(|c| {
+                let mut nodes = a.nodes_in_community(c).to_vec();
+                nodes.sort_unstable();
+                nodes
+            })
+            .collect();
+        let mut b_comms: Vec<Vec<u32>> = (0..b.community_count())
+            .map(|c| {
+                let mut nodes = b.nodes_in_community(c).to_vec();
+                nodes.sort_unstable();
+                nodes
+            })
+            .collect();
+        a_comms.sort();
+        b_comms.sort();
+        a_comms == b_comms
+    }
+
+    /// Assert every node is assigned to a valid community and IDs are contiguous.
+    fn check_valid_partition(graph: &TestGraph, partition: &Partition) {
+        let n = graph.node_count();
+        let k = partition.community_count();
+        for u in 0..n as u32 {
+            let c = partition.community_of(u);
+            assert!(c < k, "node {u} has community {c} >= community_count {k}");
+        }
+        for c in 0..k {
+            let nodes = partition.nodes_in_community(c);
+            assert!(
+                !nodes.is_empty(),
+                "community {c} is empty (non-contiguous IDs)"
+            );
+        }
+    }
+
+    proptest! {
+        #![proptest_config(proptest_config(Some(100), cfg!(debug_assertions)))]
+
+        /// Verifies INV-005: All nodes assigned + contiguous community IDs.
+        #[test]
+        fn valid_partition(topology in topology_strategy()) {
+            let mut rng = rand::thread_rng();
+            let graph = generate_graph(topology, &mut rng);
+            let partition = random_partition(&graph, &mut rng);
+            check_valid_partition(&graph, &partition);
+        }
+
+        /// Verifies INV-007: Refinement relation is transitive.
+        #[test]
+        fn refinement_transitive(topology in topology_strategy()) {
+            let mut rng = rand::thread_rng();
+            let graph = generate_graph(topology, &mut rng);
+            prop_assume!(graph.total_weight() > 0.0);
+            let partition = random_partition(&graph, &mut rng);
+            let quality = Modularity::new(1.0);
+            let refined_once = refinement(&graph, &partition, &quality);
+            let refined_twice = refinement(&graph, &refined_once, &quality);
+            // refined_once ⊑ partition and refined_twice ⊑ refined_once (by INV-011),
+            // therefore refined_twice ⊑ partition (by transitivity).
+            assert!(refined_twice.is_refinement_of(&partition));
+        }
+
+        /// Verifies INV-012: If A ⊑ B and B ⊑ A, then A == B.
+        #[test]
+        fn refinement_antisymmetric(topology in topology_strategy()) {
+            let mut rng = rand::thread_rng();
+            let graph = generate_graph(topology, &mut rng);
+            prop_assume!(graph.total_weight() > 0.0);
+            let partition = random_partition(&graph, &mut rng);
+            let quality = Modularity::new(1.0);
+            let refined = refinement(&graph, &partition, &quality);
+            if partition.is_refinement_of(&refined) && refined.is_refinement_of(&partition) {
+                assert!(
+                    partitions_equivalent(&partition, &refined),
+                    "partitions mutually refining each other must be equivalent"
+                );
+            }
+        }
+
+        /// Verifies INV-011: refinement(P) ⊑ P.
+        #[test]
+        fn refinement_is_finer_than_input(topology in topology_strategy()) {
+            let mut rng = rand::thread_rng();
+            let graph = generate_graph(topology, &mut rng);
+            prop_assume!(graph.total_weight() > 0.0);
+            let partition = random_partition(&graph, &mut rng);
+            let quality = Modularity::new(1.0);
+            let refined = refinement(&graph, &partition, &quality);
+            assert!(refined.is_refinement_of(&partition));
+        }
+
+        /// Verifies INV-005 post-refinement: Refinement output satisfies ValidPartition.
+        #[test]
+        fn well_defined_after_refinement(topology in topology_strategy()) {
+            let mut rng = rand::thread_rng();
+            let graph = generate_graph(topology, &mut rng);
+            prop_assume!(graph.total_weight() > 0.0);
+            let partition = random_partition(&graph, &mut rng);
+            let quality = Modularity::new(1.0);
+            let refined = refinement(&graph, &partition, &quality);
+            check_valid_partition(&graph, &refined);
+        }
+    }
+}

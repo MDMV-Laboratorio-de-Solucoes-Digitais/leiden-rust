@@ -907,6 +907,7 @@ version = "0.1.0"
 dependencies = [
  "criterion 0.8.2",
  "proptest",
+ "rand 0.9.5",
  "serde",
  "serde_json",
  "thiserror 2.0.20",
@@ -921,6 +922,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "leiden",
+ "proptest",
  "regex",
  "serde",
  "serde_json",
@@ -942,6 +944,7 @@ dependencies = [
  "insta",
  "leiden",
  "leiden-cli",
+ "proptest",
  "ratatui",
  "signal-hook",
  "thiserror 2.0.20",

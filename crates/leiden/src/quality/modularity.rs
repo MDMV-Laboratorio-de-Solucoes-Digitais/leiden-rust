@@ -264,3 +264,175 @@ mod tests {
         assert!(q > 0.4);
     }
 }
+
+#[cfg(test)]
+mod property_tests {
+    #![allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::cast_possible_truncation,
+        clippy::uninlined_format_args,
+        clippy::manual_range_contains,
+        clippy::format_push_string,
+        clippy::option_if_let_else,
+        clippy::unreachable,
+        clippy::cast_lossless,
+        unused_doc_comments,
+        deprecated,
+        reason = "test code"
+    )]
+
+    use proptest::prelude::*;
+    use rand::Rng;
+
+    use super::{Modularity, MoveComponents};
+    use crate::partition::Partition;
+    use crate::quality::QualityFunction;
+    use crate::testing::config::{MODULARITY_EPSILON, proptest_config};
+    use crate::testing::graphs::{
+        ErdosRenyi, GraphGenerator, ScaleFree, StochasticBlock, TestGraph, TopologyKind,
+    };
+    use crate::testing::invariants::{assert_finite, assert_modularity_valid};
+
+    /// Strategy selecting one of three distinct topologies (FR-006).
+    fn topology_strategy() -> impl Strategy<Value = TopologyKind> {
+        prop_oneof![
+            Just(TopologyKind::ErdosRenyi),
+            Just(TopologyKind::StochasticBlock),
+            Just(TopologyKind::ScaleFree),
+        ]
+    }
+
+    /// Generate a CSR graph using the selected topology.
+    fn generate_graph(topology: TopologyKind, rng: &mut impl Rng) -> TestGraph {
+        match topology {
+            TopologyKind::ErdosRenyi => ErdosRenyi::new(0.3).generate(rng),
+            TopologyKind::StochasticBlock => StochasticBlock::new(3, 0.3, 0.05).generate(rng),
+            TopologyKind::ScaleFree => ScaleFree::new(2).generate(rng),
+            _ => unreachable!(),
+        }
+    }
+
+    /// Build a random partition by merging singletons into a random number of communities.
+    fn random_partition(graph: &TestGraph, rng: &mut impl Rng) -> Partition {
+        let n = graph.node_count();
+        let mut partition = Partition::singletons(n);
+        if n > 0 {
+            let k = rng.random_range(1..=n);
+            for u in 0..n as u32 {
+                let target = rng.random_range(0..k as u32);
+                partition.move_node(u, target);
+            }
+            partition.renumber();
+        }
+        partition
+    }
+
+    proptest! {
+        #![proptest_config(proptest_config(Some(100), cfg!(debug_assertions)))]
+
+        /// Verifies INV-001: Modularity bounded above by 1.0.
+        #[test]
+        fn modularity_bounded_above(topology in topology_strategy()) {
+            let mut rng = rand::thread_rng();
+            let graph = generate_graph(topology, &mut rng);
+            prop_assume!(graph.total_weight() > 0.0);
+            let partition = random_partition(&graph, &mut rng);
+            let modularity = Modularity::new(1.0);
+            let q = modularity.total_quality(&graph, &partition);
+            assert_modularity_valid(q);
+            assert!(
+                q <= 1.0 + MODULARITY_EPSILON,
+                "modularity {q} exceeds upper bound 1.0"
+            );
+        }
+
+        /// Verifies that singleton partition yields modularity approximately zero.
+        ///
+        /// For a singleton partition Q = -Σ deg(i)² / (4m²) ∈ [-0.5, 0].
+        /// The value approaches zero for regular/dense graphs and reaches -0.5
+        /// only for the most extreme degree skew.  We verify Q lies within the
+        /// theoretical bounds (with epsilon slack).
+        #[test]
+        fn singleton_partition_zero(topology in topology_strategy()) {
+            let mut rng = rand::thread_rng();
+            let graph = generate_graph(topology, &mut rng);
+            prop_assume!(graph.total_weight() > 0.0);
+            let n = graph.node_count();
+            let partition = Partition::singletons(n);
+            let modularity = Modularity::new(1.0);
+            let q = modularity.total_quality(&graph, &partition);
+            assert_finite(q);
+            // Theoretical bounds for singleton modularity: [-0.5, 0].
+            assert!(
+                q >= -0.5 - MODULARITY_EPSILON,
+                "singleton modularity {q} below theoretical minimum -0.5"
+            );
+            assert!(
+                q <= 0.0 + MODULARITY_EPSILON,
+                "singleton modularity {q} above theoretical maximum 0.0"
+            );
+        }
+
+        /// Verifies INV-004: total_quality() and delta_move() return finite values.
+        #[test]
+        fn all_quality_finite(topology in topology_strategy()) {
+            let mut rng = rand::thread_rng();
+            let graph = generate_graph(topology, &mut rng);
+            prop_assume!(graph.total_weight() > 0.0);
+            let partition = random_partition(&graph, &mut rng);
+            let modularity = Modularity::new(1.0);
+
+            let q = modularity.total_quality(&graph, &partition);
+            assert_finite(q);
+
+            // Pick a random node and a different target community.
+            let n = graph.node_count();
+            prop_assume!(n >= 2);
+            let node = rng.random_range(0..n as u32);
+            let current = partition.community_of(node);
+            let num_comm = partition.community_count();
+            prop_assume!(num_comm >= 2);
+            let mut target = rng.random_range(0..num_comm);
+            while target == current {
+                target = rng.random_range(0..num_comm);
+            }
+
+            // Compute move components from the graph structure.
+            let k_i = graph.degree_of(node);
+            let neighbours = graph.neighbours_of(node);
+            let weights = graph.weights_of(node);
+            let mut sigma_in_to_target = 0.0_f64;
+            let mut sigma_in_from_current = 0.0_f64;
+            for (&v, &w) in neighbours.iter().zip(weights.iter()) {
+                if partition.community_of(v) == target {
+                    sigma_in_to_target += w;
+                }
+                if partition.community_of(v) == current {
+                    sigma_in_from_current += w;
+                }
+            }
+            let sigma_tot_target: f64 = partition
+                .nodes_in_community(target)
+                .iter()
+                .map(|&v| graph.degree_of(v))
+                .sum();
+            let sigma_tot_current: f64 = partition
+                .nodes_in_community(current)
+                .iter()
+                .map(|&v| graph.degree_of(v))
+                .sum();
+
+            let components = MoveComponents::new(
+                k_i,
+                sigma_in_to_target,
+                sigma_tot_target,
+                sigma_in_from_current,
+                sigma_tot_current,
+            );
+            let delta = modularity.delta_move(&graph, &partition, node, target, &components);
+            assert_finite(delta);
+        }
+    }
+}

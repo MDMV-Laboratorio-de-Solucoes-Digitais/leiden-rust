@@ -451,6 +451,7 @@ impl Leiden {
 }
 
 #[cfg(test)]
+#[expect(clippy::clone_on_ref_ptr, reason = "test code")]
 mod tests {
     use super::*;
     use crate::graph::{CsrGraph, Edge};
@@ -492,5 +493,362 @@ mod tests {
         abort.store(true, Ordering::SeqCst);
 
         let _ = handle.join();
+    }
+}
+
+#[cfg(test)]
+mod property_tests {
+    #![allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::cast_possible_truncation,
+        clippy::uninlined_format_args,
+        clippy::manual_range_contains,
+        clippy::format_push_string,
+        clippy::option_if_let_else,
+        clippy::unreachable,
+        clippy::cast_lossless,
+        clippy::doc_markdown,
+        clippy::bool_to_int_with_if,
+        clippy::clone_on_ref_ptr,
+        unused_doc_comments,
+        deprecated,
+        reason = "test code"
+    )]
+
+    use proptest::prelude::*;
+    use rand::Rng;
+    use std::collections::{HashMap, HashSet, VecDeque};
+
+    use super::Leiden;
+    use crate::events::TerminationReason;
+    use crate::graph::CsrGraph;
+    use crate::local_moving::local_moving;
+    use crate::params::LeidenParameters;
+    use crate::partition::Partition;
+    use crate::quality::{Modularity, MoveComponents, QualityFunction};
+    use crate::testing::config::{MODULARITY_EPSILON, proptest_config};
+    use crate::testing::graphs::{
+        DisconnectedGraph, ErdosRenyi, GraphGenerator, ScaleFree, StochasticBlock,
+    };
+    use crate::testing::invariants::{assert_eps_eq, assert_finite, assert_modularity_valid};
+
+    /// Dispatch to one of four graph generators by index.
+    ///
+    /// Index 0 → ErdosRenyi, 1 → StochasticBlock, 2 → ScaleFree,
+    /// 3+ → DisconnectedGraph.
+    fn gen_with_topology(topology_idx: u8, rng: &mut impl Rng) -> CsrGraph<u32> {
+        match topology_idx % 4 {
+            0 => ErdosRenyi::new(0.3).generate(rng),
+            1 => StochasticBlock::new(3, 0.3, 0.05).generate(rng),
+            2 => ScaleFree::new(2).generate(rng),
+            _ => DisconnectedGraph::new(2, 3).generate(rng),
+        }
+    }
+
+    // T013 — INV-001
+    proptest! {
+        #![proptest_config(proptest_config(Some(50), cfg!(debug_assertions)))]
+        /// Verifies INV-001
+        #[test]
+        fn modularity_bounded(topology in 0u8..4u8, gamma in 0.1f64..2.0f64) {
+            let mut rng = rand::thread_rng();
+            let graph = gen_with_topology(topology, &mut rng);
+            prop_assume!(graph.node_count() >= 2);
+            prop_assume!(graph.total_weight() > 0.0);
+
+            let params = LeidenParameters {
+                gamma,
+                seed: Some(42),
+                iteration_cap: 10,
+            };
+
+            let result = Leiden::new()
+                .with_parameters(params)
+                .run(&graph)
+                .expect("Leiden::run succeeds on valid non-trivial graph");
+
+            assert_modularity_valid(result.quality);
+        }
+    }
+
+    // T014 — INV-002
+    proptest! {
+        #![proptest_config(proptest_config(Some(50), cfg!(debug_assertions)))]
+        /// Verifies INV-002
+        #[test]
+        fn determinism(topology in 0u8..4u8, gamma in 0.1f64..2.0f64) {
+            let mut rng = rand::thread_rng();
+            let graph = gen_with_topology(topology, &mut rng);
+            prop_assume!(graph.node_count() >= 2);
+            prop_assume!(graph.total_weight() > 0.0);
+
+            let params = LeidenParameters {
+                gamma,
+                seed: Some(42),
+                iteration_cap: 10,
+            };
+
+            let result1 = Leiden::new()
+                .with_parameters(params.clone())
+                .run(&graph)
+                .expect("first run succeeds");
+
+            let result2 = Leiden::new()
+                .with_parameters(params)
+                .run(&graph)
+                .expect("second run succeeds");
+
+            prop_assert_eq!(result1.partition, result2.partition);
+            assert_eps_eq(result1.quality, result2.quality);
+        }
+    }
+
+    // T015 — INV-003
+    proptest! {
+        #![proptest_config(proptest_config(Some(50), cfg!(debug_assertions)))]
+        /// Verifies INV-003
+        #[test]
+        fn termination(topology in 0u8..4u8, gamma in 0.1f64..2.0f64) {
+            let mut rng = rand::thread_rng();
+            let graph = gen_with_topology(topology, &mut rng);
+            prop_assume!(graph.node_count() >= 2);
+            prop_assume!(graph.total_weight() > 0.0);
+
+            let params = LeidenParameters {
+                gamma,
+                seed: Some(42),
+                iteration_cap: 10,
+            };
+
+            let result = Leiden::new()
+                .with_parameters(params)
+                .run(&graph)
+                .expect("Leiden::run succeeds on valid non-trivial graph");
+
+            prop_assert!(
+                matches!(
+                    result.termination_reason,
+                    TerminationReason::Converged | TerminationReason::IterationCap
+                ),
+                "unexpected termination reason: {:?}",
+                result.termination_reason
+            );
+        }
+    }
+
+    // T016 — INV-004
+    proptest! {
+        #![proptest_config(proptest_config(Some(50), cfg!(debug_assertions)))]
+        /// Verifies INV-004
+        #[test]
+        fn no_nan(topology in 0u8..4u8, gamma in 0.1f64..2.0f64) {
+            let mut rng = rand::thread_rng();
+            let graph = gen_with_topology(topology, &mut rng);
+            prop_assume!(graph.node_count() >= 2);
+            prop_assume!(graph.total_weight() > 0.0);
+
+            let params = LeidenParameters {
+                gamma,
+                seed: Some(42),
+                iteration_cap: 10,
+            };
+
+            let result = Leiden::new()
+                .with_parameters(params)
+                .run(&graph)
+                .expect("Leiden::run succeeds on valid non-trivial graph");
+
+            assert_finite(result.quality);
+            prop_assert!(!result.quality.is_nan());
+            prop_assert!(!result.quality.is_infinite());
+        }
+    }
+
+    // T017 — FR-008 (3 of 4 module boundaries)
+    proptest! {
+        #![proptest_config(proptest_config(Some(50), cfg!(debug_assertions)))]
+        /// Verifies FR-008
+        #[test]
+        fn cross_module_integration(topology in 0u8..4u8, gamma in 0.1f64..2.0f64) {
+            let mut rng = rand::thread_rng();
+            let graph = gen_with_topology(topology, &mut rng);
+            prop_assume!(graph.node_count() >= 2);
+            prop_assume!(graph.total_weight() > 0.0);
+
+            let params = LeidenParameters {
+                gamma,
+                seed: Some(42),
+                iteration_cap: 10,
+            };
+
+            let result = Leiden::new()
+                .with_parameters(params)
+                .run(&graph)
+                .expect("Leiden::run succeeds on valid non-trivial graph");
+
+            // Boundary 1 (graph → orchestrator): node count preserved.
+            prop_assert_eq!(
+                result.partition.len(),
+                graph.node_count(),
+                "node count must be preserved through orchestrator pipeline"
+            );
+
+            // Boundary 2 (orchestrator → partition): contiguous community IDs.
+            let mut comms: Vec<u32> = result.partition.iter().map(|(_, c)| *c).collect();
+            comms.sort_unstable();
+            comms.dedup();
+            for (i, &c) in comms.iter().enumerate() {
+                prop_assert_eq!(
+                    c as usize,
+                    i,
+                    "community IDs must be contiguous starting from 0"
+                );
+            }
+
+            // Boundary 3 (partition → quality): reported quality is finite and valid.
+            assert_finite(result.quality);
+            assert_modularity_valid(result.quality);
+        }
+    }
+
+    // T017b — INV-010 (Constitution V)
+    proptest! {
+        #![proptest_config(proptest_config(Some(50), cfg!(debug_assertions)))]
+        /// Verifies INV-010
+        #[test]
+        fn modularity_non_decreasing(topology in 0u8..4u8, gamma in 0.1f64..2.0f64) {
+            let mut rng = rand::thread_rng();
+            let graph = gen_with_topology(topology, &mut rng);
+            prop_assume!(graph.node_count() >= 2);
+            prop_assume!(graph.total_weight() > 0.0);
+
+            let quality_fn = Modularity::new(gamma);
+            // Use singletons_from_graph so sigma_tot is initialized with degrees,
+            // which local_moving needs for correct delta computations.
+            let partition = Partition::singletons_from_graph(&graph);
+            let q_before = quality_fn.total_quality(&graph, &partition);
+
+            let (moved_partition, _, _) = local_moving(&graph, partition, &quality_fn);
+            let q_after = quality_fn.total_quality(&graph, &moved_partition);
+
+            prop_assert!(
+                q_after >= q_before - MODULARITY_EPSILON,
+                "modularity decreased: before={}, after={}",
+                q_before,
+                q_after
+            );
+        }
+    }
+
+    // T017c — FR-008 boundary 4 (direct graph → quality)
+    proptest! {
+        #![proptest_config(proptest_config(Some(50), cfg!(debug_assertions)))]
+        /// Verifies FR-008
+        #[test]
+        fn graph_to_quality_boundary(topology in 0u8..4u8, gamma in 0.1f64..2.0f64) {
+            let mut rng = rand::thread_rng();
+            let graph = gen_with_topology(topology, &mut rng);
+            prop_assume!(graph.node_count() >= 2);
+            prop_assume!(graph.total_weight() > 0.0);
+
+            let quality_fn = Modularity::new(gamma);
+            let n = graph.node_count();
+
+            // Build a random valid partition with contiguous community IDs.
+            let mut partition = Partition::singletons(n);
+            let num_comms = rng.gen_range(1..=n.min(5));
+            for node in 0..n {
+                let node_u32 = u32::try_from(node).unwrap_or(0);
+                let comm = node_u32 % u32::try_from(num_comms).unwrap_or(1);
+                partition.move_node(node_u32, comm);
+            }
+            partition.renumber();
+
+            // Direct QualityFunction::total_quality — no orchestrator involved.
+            let q = quality_fn.total_quality(&graph, &partition);
+            assert_finite(q);
+            assert_modularity_valid(q);
+
+            // Direct QualityFunction::delta_move — no orchestrator involved.
+            if n >= 2 {
+                let node = 0_u32;
+                let target_comm = if partition.community_count() > 1 {
+                    1
+                } else {
+                    0
+                };
+                let k_i = graph.degree_of(node);
+                let components = MoveComponents::new(k_i, 0.0, 0.0, 0.0, 0.0);
+                let delta =
+                    quality_fn.delta_move(&graph, &partition, node, target_comm, &components);
+                assert_finite(delta);
+            }
+        }
+    }
+
+    // T017d — INV-008 (communities internally connected)
+    proptest! {
+        #![proptest_config(proptest_config(Some(50), cfg!(debug_assertions)))]
+        /// Verifies INV-008: each returned community is internally connected
+        /// in the induced subgraph (BFS reachability).
+        #[test]
+        fn communities_connected(topology in 0u8..4u8, gamma in 0.1f64..2.0f64, seed in any::<u64>()) {
+            let mut rng = rand::thread_rng();
+            let graph = gen_with_topology(topology, &mut rng);
+            prop_assume!(graph.node_count() >= 2);
+            prop_assume!(graph.total_weight() > 0.0);
+
+            let params = LeidenParameters {
+                gamma,
+                seed: Some(seed),
+                iteration_cap: 10,
+            };
+
+            let result = Leiden::new()
+                .with_parameters(params)
+                .run(&graph)
+                .expect("Leiden::run succeeds on valid non-trivial graph");
+
+            // Group nodes by community.
+            let mut comm_members: HashMap<u32, Vec<u32>> = HashMap::new();
+            for (node, comm) in &result.partition {
+                comm_members.entry(*comm).or_default().push(*node);
+            }
+
+            // BFS connectivity inside each community's induced subgraph.
+            for members in comm_members.values() {
+                if members.len() <= 1 {
+                    continue;
+                }
+                let member_set: HashSet<u32> = members.iter().copied().collect();
+                let start = members[0];
+                let mut visited = HashSet::new();
+                let mut queue = VecDeque::new();
+                queue.push_back(start);
+                let _ = visited.insert(start);
+
+                while let Some(curr) = queue.pop_front() {
+                    if let Some(curr_idx) = graph.internal_id(&curr) {
+                        for &nbr_idx in graph.neighbours_of(curr_idx) {
+                            if let Some(&nbr) = graph.node_id(nbr_idx)
+                                && member_set.contains(&nbr)
+                                && !visited.contains(&nbr)
+                            {
+                                let _ = visited.insert(nbr);
+                                queue.push_back(nbr);
+                            }
+                        }
+                    }
+                }
+
+                prop_assert_eq!(
+                    visited.len(),
+                    members.len(),
+                    "community must be internally connected in induced subgraph"
+                );
+            }
+        }
     }
 }
