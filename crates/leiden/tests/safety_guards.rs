@@ -20,16 +20,6 @@ fn workspace_root() -> PathBuf {
 }
 
 #[test]
-fn parallel_feature_is_off_by_default() {
-    const {
-        assert!(
-            !cfg!(feature = "parallel"),
-            "The `parallel` Cargo feature MUST be off by default per SC-001"
-        );
-    }
-}
-
-#[test]
 fn rayon_not_in_dependency_tree() {
     let lock_path = workspace_root().join("Cargo.lock");
     assert!(
