@@ -87,12 +87,49 @@ fn scan_file(path: &std::path::Path, violations: &mut Vec<(PathBuf, usize, Strin
     let Ok(text) = std::str::from_utf8(&bytes) else {
         return;
     };
+    let mut in_cfg_test_module = false;
+    let mut brace_depth = 0_i32;
+    let mut saw_opening_brace = false;
     for (idx, line) in text.lines().enumerate() {
         let trimmed = line.trim_start();
         // Skip line comments and doc comments.
         if trimmed.starts_with("//") {
             continue;
         }
+
+        // Track #[cfg(test)] / #![cfg(test)] attributes to skip test code.
+        // Test code is allowed to use .unwrap()/.expect() per Constitution §III.
+        // The attribute may be on its own line before `mod` (outer: #[cfg(test)])
+        // or at the top of a test-only file (inner: #![cfg(test)]).
+        if trimmed.starts_with("#[cfg(test)]") || trimmed.starts_with("#![cfg(test)]") {
+            in_cfg_test_module = true;
+            brace_depth = 0;
+            saw_opening_brace = false;
+            // For inner attributes (#![cfg(test)]), the entire file is test code.
+            // For outer attributes, continue tracking to find the module end.
+            if trimmed.starts_with("#![cfg(test)]") {
+                // Inner attribute: skip the entire file.
+                break;
+            }
+            continue;
+        }
+        if in_cfg_test_module {
+            // Track brace depth to find the end of the test module.
+            for ch in line.chars() {
+                if ch == '{' {
+                    brace_depth += 1;
+                    saw_opening_brace = true;
+                } else if ch == '}' {
+                    brace_depth -= 1;
+                }
+            }
+            // Exit test module when braces balance after seeing an opening brace.
+            if saw_opening_brace && brace_depth <= 0 {
+                in_cfg_test_module = false;
+            }
+            continue;
+        }
+
         for needle in FORBIDDEN_MACROS {
             if line.contains(needle) {
                 violations.push((path.to_path_buf(), idx + 1, format!("macro: {needle}")));
