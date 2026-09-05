@@ -14,7 +14,7 @@ workspace = true
 path = "src/lib.rs"
 
 [[bin]]
-name = "leiden"
+name = "leiden_cli"
 path = "src/main.rs"
 
 [dependencies]

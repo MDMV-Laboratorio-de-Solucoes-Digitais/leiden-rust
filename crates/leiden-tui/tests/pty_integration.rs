@@ -52,6 +52,11 @@ fn pty_available_for_tui_testing() {
 
 #[test]
 fn pty_with_dimensions_allocates_correctly() {
+    if !script_command_available() {
+        // PTY not available in this environment (e.g., CI)
+        return;
+    }
+
     let mut child = Command::new("script")
         .args(["-q", "/dev/null", "stty", "size"])
         .stdin(Stdio::piped())

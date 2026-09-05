@@ -21,9 +21,9 @@ fn fixture_path(name: &str) -> PathBuf {
 #[test]
 fn cli_default_seed_is_zero_when_flag_omitted() {
     let fixture = fixture_path("two_cliques.edg");
-    let bin = env!("CARGO_BIN_EXE_leiden");
+    let bin = std::env::var("CARGO_BIN_EXE_leiden_cli").expect("binary");
 
-    let output = Command::new(bin)
+    let output = Command::new(&bin)
         .arg(fixture)
         .output()
         .expect("runs leiden CLI binary");

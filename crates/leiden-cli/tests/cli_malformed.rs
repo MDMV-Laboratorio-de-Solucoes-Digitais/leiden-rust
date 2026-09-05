@@ -15,8 +15,8 @@ fn malformed_negative_weight() {
     let mut temp = tempfile::NamedTempFile::new().expect("temp file");
     writeln!(temp, "a\tb\t-1.0").expect("write temp");
 
-    let bin = env!("CARGO_BIN_EXE_leiden");
-    let output = Command::new(bin)
+    let bin = std::env::var("CARGO_BIN_EXE_leiden_cli").expect("binary");
+    let output = Command::new(&bin)
         .arg(temp.path())
         .output()
         .expect("runs CLI");
@@ -34,8 +34,8 @@ fn malformed_self_loop() {
     let mut temp = tempfile::NamedTempFile::new().expect("temp file");
     writeln!(temp, "a\ta\t1.0").expect("write temp");
 
-    let bin = env!("CARGO_BIN_EXE_leiden");
-    let output = Command::new(bin)
+    let bin = std::env::var("CARGO_BIN_EXE_leiden_cli").expect("binary");
+    let output = Command::new(&bin)
         .arg(temp.path())
         .output()
         .expect("runs CLI");
@@ -58,8 +58,8 @@ fn malformed_dangling_node() {
     }"#;
     writeln!(temp, "{json_doc}").expect("write temp");
 
-    let bin = env!("CARGO_BIN_EXE_leiden");
-    let output = Command::new(bin)
+    let bin = std::env::var("CARGO_BIN_EXE_leiden_cli").expect("binary");
+    let output = Command::new(&bin)
         .arg(temp.path())
         .output()
         .expect("runs CLI");
@@ -77,8 +77,8 @@ fn malformed_invalid_gamma() {
     let mut temp = tempfile::NamedTempFile::new().expect("temp file");
     writeln!(temp, "a\tb\t1.0").expect("write temp");
 
-    let bin = env!("CARGO_BIN_EXE_leiden");
-    let output = Command::new(bin)
+    let bin = std::env::var("CARGO_BIN_EXE_leiden_cli").expect("binary");
+    let output = Command::new(&bin)
         .arg("--gamma")
         .arg("0.0")
         .arg(temp.path())

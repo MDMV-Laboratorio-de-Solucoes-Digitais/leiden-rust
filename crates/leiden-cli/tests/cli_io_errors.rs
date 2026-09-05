@@ -19,11 +19,11 @@ fn fixture_path(name: &str) -> PathBuf {
 
 #[test]
 fn io_error_yields_exit_code_5() {
-    let bin = env!("CARGO_BIN_EXE_leiden");
+    let bin = std::env::var("CARGO_BIN_EXE_leiden_cli").expect("binary");
 
     // 1. Missing path
     let missing_path = fixture_path("__does_not_exist__.edg");
-    let out_missing = Command::new(bin)
+    let out_missing = Command::new(&bin)
         .arg(&missing_path)
         .output()
         .expect("runs CLI");
@@ -37,7 +37,10 @@ fn io_error_yields_exit_code_5() {
 
     // 2. Directory as file
     let dir_path = fixture_path("");
-    let out_dir = Command::new(bin).arg(&dir_path).output().expect("runs CLI");
+    let out_dir = Command::new(&bin)
+        .arg(&dir_path)
+        .output()
+        .expect("runs CLI");
 
     assert_eq!(out_dir.status.code(), Some(5));
     let stderr_dir = String::from_utf8(out_dir.stderr).expect("valid utf8");
@@ -61,7 +64,7 @@ fn io_error_yields_exit_code_5() {
             std::fs::set_permissions(temp.path(), std::fs::Permissions::from_mode(0o000))
                 .expect("set permissions 000");
 
-            let out_perm = Command::new(bin)
+            let out_perm = Command::new(&bin)
                 .arg(temp.path())
                 .output()
                 .expect("runs CLI");
