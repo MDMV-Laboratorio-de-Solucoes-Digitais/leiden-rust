@@ -1,5 +1,7 @@
-# Proptest configuration for Leiden workspace
-# Honors SC-003 contract of 1000 random graphs with bounded shrink cost
+# Proptest configuration for Leiden workspace (project convention)
+# Local development: 1000 cases
+# CI: overridden by PROPTEST_CASES=256
 
 cases = 1000
 max_shrink_iters = 200
+failure_persistence = "SourceParallel"

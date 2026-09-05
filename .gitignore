@@ -28,6 +28,10 @@ Thumbs.db
 # Cargo.lock is intentionally NOT ignored for v1: the TUI / library
 # workspace ships binaries, so reproducible builds pin dependency versions.
 
+# Proptest failure persistence (FR-012)
+proptest-regressions*
+proptest-reports/
+
 # Agents
 .commandcode/
 .agents/
