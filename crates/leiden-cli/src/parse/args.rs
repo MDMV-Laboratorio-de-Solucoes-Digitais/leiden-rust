@@ -5,7 +5,7 @@ use clap::Parser;
 /// Non-interactive CLI for deterministic Leiden community detection.
 #[derive(Debug, Parser, Clone)]
 #[command(
-    name = "leiden",
+    name = "leiden_cli",
     about = "Deterministic Leiden community detection",
     version,
     author
@@ -52,7 +52,7 @@ mod tests {
     #[test]
     fn cli_args_parsing() {
         let Ok(args) = Args::try_parse_from([
-            "leiden",
+            "leiden_cli",
             "--gamma",
             "1.5",
             "--seed",

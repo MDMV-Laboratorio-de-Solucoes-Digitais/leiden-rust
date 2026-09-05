@@ -44,9 +44,9 @@ fn cli_stderr_matches_cli_schema_1_5_spec() {
 fn cli_stderr_matches_cli_schema_1_5_at_runtime() {
     let regex = regex::Regex::new(STDERR_REGEX).expect("valid regex");
     let fixture = fixture_path("two_cliques.edg");
-    let bin = env!("CARGO_BIN_EXE_leiden");
+    let bin = std::env::var("CARGO_BIN_EXE_leiden_cli").expect("binary");
 
-    let output = Command::new(bin)
+    let output = Command::new(&bin)
         .arg("--log-level")
         .arg("info")
         .arg(fixture)

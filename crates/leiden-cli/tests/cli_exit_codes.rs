@@ -31,10 +31,10 @@ fn assert_no_panic(stderr: &str) {
 
 #[test]
 fn all_exit_codes_exercised() {
-    let bin = env!("CARGO_BIN_EXE_leiden");
+    let bin = std::env::var("CARGO_BIN_EXE_leiden_cli").expect("binary");
 
     // Exit 0: Success
-    let out0 = Command::new(bin)
+    let out0 = Command::new(&bin)
         .arg(fixture_path("two_cliques.edg"))
         .output()
         .expect("runs CLI");
@@ -42,7 +42,7 @@ fn all_exit_codes_exercised() {
     assert_no_panic(&String::from_utf8_lossy(&out0.stderr));
 
     // Exit 2: Unsupported Format
-    let out2 = Command::new(bin)
+    let out2 = Command::new(&bin)
         .arg("--format")
         .arg("invalid_fmt")
         .arg(fixture_path("two_cliques.edg"))
@@ -52,7 +52,7 @@ fn all_exit_codes_exercised() {
     assert_no_panic(&String::from_utf8_lossy(&out2.stderr));
 
     // Exit 3: Invalid Gamma / Cap
-    let out3 = Command::new(bin)
+    let out3 = Command::new(&bin)
         .arg("--gamma")
         .arg("-1.0")
         .arg(fixture_path("two_cliques.edg"))
@@ -64,7 +64,7 @@ fn all_exit_codes_exercised() {
     // Exit 4: Malformed input (negative weight)
     let mut temp4 = tempfile::NamedTempFile::new().expect("temp file");
     writeln!(temp4, "a\tb\t-5.0").expect("write temp");
-    let out4 = Command::new(bin)
+    let out4 = Command::new(&bin)
         .arg(temp4.path())
         .output()
         .expect("runs CLI");
@@ -72,7 +72,7 @@ fn all_exit_codes_exercised() {
     assert_no_panic(&String::from_utf8_lossy(&out4.stderr));
 
     // Exit 5: I/O error
-    let out5 = Command::new(bin)
+    let out5 = Command::new(&bin)
         .arg(fixture_path("__nonexistent_file__.edg"))
         .output()
         .expect("runs CLI");

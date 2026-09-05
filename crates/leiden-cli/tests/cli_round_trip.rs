@@ -22,9 +22,9 @@ fn fixture_path(name: &str) -> PathBuf {
 #[test]
 fn cli_round_trip() {
     let fixture = fixture_path("two_cliques.edg");
-    let bin = env!("CARGO_BIN_EXE_leiden");
+    let bin = std::env::var("CARGO_BIN_EXE_leiden_cli").expect("binary");
 
-    let output = Command::new(bin)
+    let output = Command::new(&bin)
         .arg("--format")
         .arg("json")
         .arg(fixture)
@@ -54,9 +54,9 @@ fn cli_round_trip() {
 #[test]
 fn cli_text_format_is_sorted() {
     let fixture = fixture_path("two_cliques.edg");
-    let bin = env!("CARGO_BIN_EXE_leiden");
+    let bin = std::env::var("CARGO_BIN_EXE_leiden_cli").expect("binary");
 
-    let output = Command::new(bin)
+    let output = Command::new(&bin)
         .arg("--format")
         .arg("text")
         .arg(fixture)

@@ -20,9 +20,9 @@ fn fixture_path(name: &str) -> PathBuf {
 #[test]
 fn cli_quiet_suppresses_progress_lines() {
     let fixture = fixture_path("two_cliques.edg");
-    let bin = env!("CARGO_BIN_EXE_leiden");
+    let bin = std::env::var("CARGO_BIN_EXE_leiden_cli").expect("binary");
 
-    let output = Command::new(bin)
+    let output = Command::new(&bin)
         .arg("--log-level")
         .arg("error")
         .arg(&fixture)
@@ -51,10 +51,10 @@ fn cli_quiet_suppresses_progress_lines() {
 #[test]
 fn cli_warn_level_suppresses_info_progress_lines() {
     let fixture = fixture_path("two_cliques.edg");
-    let bin = env!("CARGO_BIN_EXE_leiden");
+    let bin = std::env::var("CARGO_BIN_EXE_leiden_cli").expect("binary");
 
     // 1. info level -> progress lines present
-    let out_info = Command::new(bin)
+    let out_info = Command::new(&bin)
         .arg("--log-level")
         .arg("info")
         .arg(&fixture)
@@ -67,7 +67,7 @@ fn cli_warn_level_suppresses_info_progress_lines() {
     assert!(stderr_info.contains("terminated after"));
 
     // 2. warn level -> progress lines suppressed
-    let out_warn = Command::new(bin)
+    let out_warn = Command::new(&bin)
         .arg("--log-level")
         .arg("warn")
         .arg(&fixture)

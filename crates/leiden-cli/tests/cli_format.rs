@@ -20,9 +20,9 @@ fn fixture_path(name: &str) -> PathBuf {
 #[test]
 fn cli_rejects_unknown_format() {
     let fixture = fixture_path("two_cliques.edg");
-    let bin = env!("CARGO_BIN_EXE_leiden");
+    let bin = std::env::var("CARGO_BIN_EXE_leiden_cli").expect("binary");
 
-    let output = Command::new(bin)
+    let output = Command::new(&bin)
         .arg("--format")
         .arg("yaml")
         .arg(fixture)
